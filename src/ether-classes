@@ -1,0 +1,54 @@
+// build cursor ops should be right in ether, you are just telling it to begin on functions and such
+// we do not need to go as far as defining a 'class' with ether, silver should take that responsibility
+#ifndef i_ether
+#define i_ether
+#endif
+
+#ifndef i_node
+#define i_node
+#endif
+
+#ifndef i_def
+#define i_def
+#endif
+
+#ifndef i_instance
+#define i_instance
+#endif
+
+#ifndef i_value
+#define i_value
+#endif
+
+#ifndef i_fcall
+#define i_fcall
+#endif
+
+#ifndef i_ret
+#define i_ret
+#endif
+
+#ifndef i_add
+#define i_add
+#endif
+
+#ifndef i_sub
+#define i_sub
+#endif
+
+#ifndef i_mul
+#define i_mul
+#endif
+
+#ifndef i_div
+#define i_div
+#endif
+
+#ifndef i_member
+#define i_member
+#endif
+
+#ifndef i_function
+#define i_function
+#endif
+
