@@ -43,47 +43,50 @@ declare_enum(interface)
     enum_value(X,Y, typedef)
 declare_enum(model)
 
-#define value_schema(X,Y) \
-    i_prop(    X,Y, required,     object,                 param) \
-    i_prop(    X,Y, intern,       LLVMValueRef,           vr)
-declare_class(value)
-
-// support 'target' as optional
-#define fcall_schema(X,Y) \
-    i_prop(    X,Y, required,     function,               addr) \
-    i_prop(    X,Y, required,     map,                    args) \
-    i_prop(    X,Y, public,       value,                  target)
-declare_class(fcall)
-
-#define add_schema(X,Y) \
-    i_prop(    X,Y, required,     value,                  left) \
-    i_prop(    X,Y, required,     value,                  right)
-declare_class(add)
-
-#define sub_schema(X,Y) add_schema(X,Y)
-declare_class(sub)
-
-#define mul_schema(X,Y) add_schema(X,Y)
-declare_class(mul)
-
-#define div_schema(X,Y) add_schema(X,Y)
-declare_class(div)
-
-#define ret_schema(X,Y) \
-    i_prop(    X,Y, required, value,        val) \
-    i_prop(    X,Y, intern,   LLVMValueRef, vr)
-declare_class(ret)
-
 /// the base helps us require the two args we need for nodes
+
 #define node_schema(X,Y)\
-    i_prop    (X,Y, required,   string,                 name) \
-    i_prop    (X,Y, required,   ether,                  mod)
+    i_prop    (X,Y, public,     string,                 name) \
+    i_prop    (X,Y, required,   ether,                  mod) \
+    i_prop    (X,Y, intern,     LLVMValueRef,           value)
+#ifndef node_intern
+#define node_intern
+#endif
 declare_class(node)
+
+// support 'target' as optional 
+// (we are just using first argument, and assuming not given in args!)
+#define fcall_schema(X,Y) \
+    i_prop(X,Y, required,     function,               addr) \
+    i_prop(X,Y, required,     map,                    args) \
+    i_prop(X,Y, public,       member,                 target)
+#ifndef fcall_intern
+#define fcall_intern
+#endif
+declare_mod(fcall, node)
+
+#define op_schema(X,Y) \
+    i_prop(X,Y, required,     OPType,       optype) \
+    i_prop(X,Y, required,     node,         left) \
+    i_prop(X,Y, public,       node,         right)
+#ifndef op_intern
+#define op_intern
+#endif
+declare_mod(op, node)
+
+
+#define ret_schema(X,Y)
+#ifndef ret_intern
+#define ret_intern
+#endif
+declare_mod(ret, node)
+
 
 #define def_schema(X,Y) \
     i_prop(    X,Y, public,     interface,              access) \
-    i_prop(    X,Y, public,     model,                  mdl) \
     i_prop(    X,Y, public,     AType,                  imported) \
+    i_prop(    X,Y, public,     model,                  mdl) \
+    i_prop(    X,Y, public,     function,               function) \
     i_prop(    X,Y, public,     i64,                    flags) \
     i_prop(    X,Y, public,     member,                 origin) \
     i_prop(    X,Y, public,     i32,                    size) \
@@ -91,18 +94,26 @@ declare_class(node)
     i_prop(    X,Y, intern,     LLVMTypeRef,            type) \
     i_prop(    X,Y, intern,     LLVMMetadataRef,        dbg) \
     i_override(X,Y, method,     init)
+#ifndef def_intern
+#define def_intern
+#endif
 declare_mod(def, node)
+
 
 #define function_schema(X,Y) \
     i_prop(    X,Y, public,     bool,                   va_args) \
     i_prop(    X,Y, public,     map,                    args) \
     i_prop(    X,Y, public,     def,                    def) \
+    i_prop(    X,Y, public,     def,                    target) \
     i_prop(    X,Y, public,     member,                 rtype) \
-    i_prop(    X,Y, public,     object,                 content) \
+    i_prop(    X,Y, public,     subprocedure,           builder) \
     i_prop(    X,Y, intern,     LLVMScope,              scope) \
-    i_prop(    X,Y, intern,     LLVMBasicBlockRef,      entry) \
-    i_override(X,Y, method,     init)
+    i_prop(    X,Y, intern,     LLVMBasicBlockRef,      entry)
+#ifndef function_intern
+#define function_intern
+#endif
 declare_mod(function, node)
+
 
 #define member_schema(X,Y) \
     i_prop(    X,Y, public,     def,                    def) \
@@ -115,14 +126,26 @@ declare_mod(function, node)
     i_prop(    X,Y, intern,     array,                  shape) \
     i_prop(    X,Y, intern,     bool,                   cached) \
     i_prop(    X,Y, intern,     LLVMTypeRef,            type) \
-    i_prop(    X,Y, intern,     LLVMValueRef,           value) \
     i_prop(    X,Y, intern,     LLVMMetadataRef,        dbg) \
     i_prop(    X,Y, public,     num,                    line) \
     i_override(X,Y, method,     init)
+#ifndef member_intern
+#define member_intern
+#endif
 declare_mod(member, node)
 
+/// ether must be capable of multiple returns in abstract
+/// this is something i believe we require of silver for 0.88 spec
 #define ether_schema(X,Y)\
     i_prop    (X,Y, required,   string,                 name) \
+    i_method  (X,Y, public,     def,  function,         cstr, def, member, map, bool, subprocedure) \
+    i_method  (X,Y, public,     node, op,               OPType, object, object) \
+    i_method  (X,Y, public,     node, add,              object, object) \
+    i_method  (X,Y, public,     node, sub,              object, object) \
+    i_method  (X,Y, public,     node, mul,              object, object) \
+    i_method  (X,Y, public,     node, div,              object, object) \
+    i_method  (X,Y, public,     node, fcall,            function, member, map) \
+    i_method  (X,Y, public,     node, freturn,          object) \
     i_prop    (X,Y, intern,     map,                    defs) \
     i_prop    (X,Y, intern,     LLVMModuleRef,          module) \
     i_prop    (X,Y, intern,     LLVMContextRef,         context) \
@@ -137,6 +160,9 @@ declare_mod(member, node)
     i_prop    (X,Y, intern,     cstr,                   target_triple) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
+#ifndef ether_intern
+#define ether_intern
+#endif
 declare_class(ether)
 
 #endif
