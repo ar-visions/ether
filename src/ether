@@ -138,6 +138,8 @@ declare_mod(member, node)
 /// this is something i believe we require of silver for 0.88 spec
 #define ether_schema(X,Y)\
     i_prop    (X,Y, required,   string,                 name) \
+    i_prop    (X,Y, public,     string,                 lang) \
+    i_prop    (X,Y, public,     path,                   install) \
     i_method  (X,Y, public,     def,  function,         cstr, def, member, map, bool, subprocedure) \
     i_method  (X,Y, public,     node, op,               OPType, object, object) \
     i_method  (X,Y, public,     node, add,              object, object) \
@@ -146,6 +148,12 @@ declare_mod(member, node)
     i_method  (X,Y, public,     node, div,              object, object) \
     i_method  (X,Y, public,     node, fcall,            function, member, map) \
     i_method  (X,Y, public,     node, freturn,          object) \
+    i_method  (X,Y, public,     node, push_members) \
+    i_method  (X,Y, public,     node, pop_members) \
+    i_prop    (X,Y, required,   path,                   source) \
+    i_prop    (X,Y, intern,     path,                   current_include) \
+    i_prop    (X,Y, intern,     function,               current_fn) \
+    i_prop    (X,Y, intern,     array,                  members) \
     i_prop    (X,Y, intern,     map,                    defs) \
     i_prop    (X,Y, intern,     LLVMModuleRef,          module) \
     i_prop    (X,Y, intern,     LLVMContextRef,         context) \
