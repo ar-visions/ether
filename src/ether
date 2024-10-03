@@ -30,7 +30,8 @@ typedef struct function*    function;
     i_override  (X,Y,  method,  init) \
     i_override  (X,Y,  method,  compare) \
     i_override  (X,Y,  cast,    string) \
-    i_override  (X,Y,  cast,    bool)
+    i_override  (X,Y,  cast,    bool) \
+    i_override  (X,Y,  method,  init)
 #ifndef token_intern
 #define token_intern
 #endif
@@ -96,7 +97,7 @@ declare_class(node)
 #define type_schema(X,Y) \
     i_prop(    X,Y, public,     map,                    members) \
     i_prop(    X,Y, public,     function,               function) \
-    i_prop(    X,Y, intern,     LLVMTypeRef,            type) \
+    i_prop(    X,Y, intern,     LLVMTypeRef,            ref) \
     i_prop(    X,Y, public,     bool,                   is_const) \
     i_prop(    X,Y, intern,     type,                   wrap) \
     i_prop(    X,Y, intern,     num,                    depth) \
@@ -109,6 +110,7 @@ declare_class(node)
     i_prop(    X,Y, intern,     array,                  shape) \
     i_prop(    X,Y, intern,     LLVMMetadataRef,        dbg) \
     i_prop(    X,Y, public,     num,                    line) \
+    i_method(  X,Y, public,     type, create_ref) \
     i_override(X,Y, method,     init)
 #ifndef type_intern
 #define type_intern
@@ -135,7 +137,7 @@ declare_mod(member, node)
     i_prop(    X,Y, public,     map,                    args) \
     i_prop(    X,Y, public,     type,                   type) \
     i_prop(    X,Y, public,     type,                   target) \
-    i_prop(    X,Y, public,     member,                 rtype) \
+    i_prop(    X,Y, public,     type,                   rtype) \
     i_prop(    X,Y, public,     subprocedure,           builder) \
     i_prop(    X,Y, intern,     LLVMScope,              scope) \
     i_prop(    X,Y, intern,     LLVMBasicBlockRef,      entry)

@@ -22,7 +22,9 @@ typedef LLVMMetadataRef LLVMScope;
 #include <ether>
 
 #define ecall(M, ...) ether_##M(e, ## __VA_ARGS__)
-#define edef(name) (get(e->defs, str(name)))
+#define edef(name) ((type)get(e->defs, str(name)))
+#define no_target null
+#define create_member(E, T, R, N) new(member, mod, E, name, str(N), is_ref, R, type, get(E->defs, str(T)));
 
 static map operators;
 
@@ -72,6 +74,10 @@ void token_init(token a) {
     sz length = a->len ? a->len : strlen(prev);
     a->chars  = (cstr)calloc(length + 1, 1);
     a->len    = length;
+    if (strcmp(a->chars, "argc") == 0) {
+        int test = 0;
+        test++;
+    }
     memcpy(a->chars, prev, length);
 }
 
@@ -135,14 +141,23 @@ LLVMMetadataRef cstr_dbg(type def, bool isConst) {
         ptr_sz * 8, 0, 0, name, strlen(name));
 }
 
+type type_create_ref(type def) {
+    type res = new(type, mod, def->mod, name, def->name, mdl, def->mdl,
+        depth, def->depth + 1, wrap, def->wrap, origin, def, shape, def->shape,
+        line, def->line);
+    res->ref = LLVMPointerType(res->ref, 0);
+    res->origin = def;
+    return res;
+}
+
 void type_init(type def) {
     ether e = def->mod;
+    bool get_size = false;
 
-    if (inherits(def->name, string)) {
+    if (def->name && inherits(def->name, string)) {
         string n = def->name;
-        def->name = new(token, chars, n, source, e->source, line, 1);
+        def->name = new(token, chars, n->chars, source, e->source, line, 1);
     }
-
     // create for users of this data
     //def->context = new(context);
     bool handled_members = false;
@@ -155,23 +170,23 @@ void type_init(type def) {
         case model_function:
             break;
         
-        case model_bool:   def->type = LLVMInt1Type  (); break;
-        case model_i8:     def->type = LLVMInt8Type  (); break;
-        case model_i16:    def->type = LLVMInt16Type (); break;
-        case model_i32:    def->type = LLVMInt32Type (); break;
-        case model_i64:    def->type = LLVMInt64Type (); break;
-        case model_u8:     def->type = LLVMInt8Type  (); break;
-        case model_u16:    def->type = LLVMInt16Type (); break;
-        case model_u32:    def->type = LLVMInt32Type (); break;
-        case model_u64:    def->type = LLVMInt64Type (); break;
-        case model_f32:    def->type = LLVMFloatType (); break;
-        case model_f64:    def->type = LLVMDoubleType(); break;
-        case model_void:   def->type = LLVMVoidType  (); break;
+        case model_bool:   def->ref = LLVMInt1Type  (); break;
+        case model_i8:     def->ref = LLVMInt8Type  (); break;
+        case model_i16:    def->ref = LLVMInt16Type (); break;
+        case model_i32:    def->ref = LLVMInt32Type (); break;
+        case model_i64:    def->ref = LLVMInt64Type (); break;
+        case model_u8:     def->ref = LLVMInt8Type  (); break;
+        case model_u16:    def->ref = LLVMInt16Type (); break;
+        case model_u32:    def->ref = LLVMInt32Type (); break;
+        case model_u64:    def->ref = LLVMInt64Type (); break;
+        case model_f32:    def->ref = LLVMFloatType (); break;
+        case model_f64:    def->ref = LLVMDoubleType(); break;
+        case model_void:   def->ref = LLVMVoidType  (); break;
         case model_typedef: {
-            verify (def->origin && isa(def->origin) == typeid(member), "origin must be ident reference");
-            def->type = def->origin->type;
+            verify (def->origin && isa(def->origin) == typeid(type), "origin must be type");
+            def->ref = def->origin->ref;
             if (e->dbg) {
-                member origin = def->origin;
+                type origin = def->origin;
                 verify(origin, "origin not resolved");
                 def->dbg = LLVMDIBuilderCreateTypedef(
                     e->dbg, def->origin->dbg, def->name->chars, len(def->name),
@@ -185,11 +200,11 @@ void type_init(type def) {
             pairs(def->members, i) {
                 member mem = i->value;
                 verify(isa(mem) == typeid(member), "mismatch");
-                member_types[index] = mem->type;
+                member_types[index] = mem->type->ref;
                 index++;
             }
-            def->type = LLVMStructCreateNamed(LLVMGetGlobalContext(), def->name);
-            LLVMStructSetBody(def->type, member_types, index, 0);
+            def->ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), def->name);
+            LLVMStructSetBody(def->ref, member_types, index, 0);
             handled_members = true;
             break;
         }
@@ -198,23 +213,30 @@ void type_init(type def) {
             break;
         }
     }
+    /// create debug info for primitives
+    if (def->mdl >= model_bool && def->mdl <= model_f64) {
+        def->dbg = primitive_dbg(def);
+        get_size = true;
+    }
 
-    if (def->type) {
+    if (get_size) {
         // type has depth applied, for ALL types
         for (int i = 0; i < def->depth; i++)
-            def->type = LLVMPointerType(def->type, 0);
+            def->ref = LLVMPointerType(def->ref, 0);
         // the size is the effective type size after applying (sizeof ptr if depth > 0)
-        def->size = LLVMSizeOfTypeInBits(def->mod->target_data, def->type);
+        if (!eq(def->name, "void"))
+            def->size = LLVMSizeOfTypeInBits(def->mod->target_data, def->ref) / 8;
     }
-    /// create debug info for primitives
-    if (def->mdl >= model_bool && def->mdl <= model_f64)
-        def->dbg = primitive_dbg(def);
     else if (eq(def->name, "symbol") || eq(def->name, "cstr"))
         def->dbg = cstr_dbg(def, eq(def->name, "symbol"));
     else if (def->mdl != model_function) {
         verify (def->dbg || eq(def->name, "void"), "debug info not set for type");
     }
-    verify (!count(def->members) || handled_members, "members given and not processed");
+    verify (!len(def->members) || handled_members, "members given and not processed");
+
+    verify(def->mdl != model_u64 || def->ref == LLVMInt64Type(), "integrity check fail");
+    int test = 0;
+    test++;
 }
 
 void context_init(context ctx) {
@@ -224,14 +246,25 @@ void context_init(context ctx) {
 void member_init(member mem) {
     /// lets create everything we need for LLVM call here
     ether   e   = mem->mod;
+
+    if (mem->type && mem->is_ref) {
+        mem->type = call(mem->type, create_ref);
+    }
+
     context top = e->top;
+    if (inherits(mem->name, string)) {
+        string n = mem->name;
+        mem->name = new(token, chars, n->chars, source, e->source, line, 1);
+    }
 
     verify (mem->type->dbg, "no debug info on type");
+    AType name_type = isa(mem->name);
+    sz name_len = len(mem->name);
     mem->dbg = LLVMDIBuilderCreateMemberType(
         e->dbg,                // LLVMDIBuilderRef
-        top->scope,            // Scope of the member (can be the struct or class)
+        e->compile_unit, //top->scope,            // Scope of the member (can be the struct or class)
         mem->name->chars,      // Name of the member
-        len(mem->name),        // Length of the name
+        name_len,              // Length of the name
         e->file,               // The file where the member is declared
         mem->name->line,       // Line number where the member is declared
         mem->type->size * 8,   // Size of the member in bits (e.g., 32 for a 32-bit int)
@@ -296,16 +329,21 @@ member ether_find_member(ether e, string name) {
     return null;
 }
 
+
 type ether_find_def(ether e, string name) {
     return get(e->defs, name);
 }
 
+
 context ether_push(ether e) {
-    context top = new(context);
-    push(e->lex, top);
-    e->top = top;
-    return top;
+    context t = new(context);
+    t->scope  = e->top ? LLVMDIBuilderCreateLexicalBlock(
+        e->dbg, e->top->scope, e->file, 1, 0) : e->compile_unit;
+    push(e->lex, t);
+    e->top = t;
+    return t;
 }
+
 
 context ether_pop(ether e) {
     pop(e->lex);
@@ -315,6 +353,7 @@ context ether_pop(ether e) {
         e->top = null;
     return e->top;
 }
+
 
 /// return a map of defs found by their name (we can isolate the namespace this way by having separate maps)
 map ether_include(ether e, string include) {
@@ -347,17 +386,20 @@ map ether_include(ether e, string include) {
     return 0;
 }
 
+
 void ether_set_line(ether e, i32 line, i32 column) {
     LLVMMetadataRef loc = LLVMDIBuilderCreateDebugLocation(
         e->module_ctx, line, column, e->scope, null);
     LLVMSetCurrentDebugLocation2(e->dbg, loc);
 }
 
+
 void ether_llflag(ether e, symbol flag, i32 ival) {
     LLVMMetadataRef v = LLVMValueAsMetadata(
         LLVMConstInt(LLVMInt32Type(), ival, 0));
     LLVMAddModuleFlag(e->module, LLVMModuleFlagBehaviorError, flag, strlen(flag), v);
 }
+
 
 void ether_write(ether e) {
     cstr err = NULL;
@@ -377,6 +419,7 @@ void ether_write(ether e) {
     else
         print("bitcode written to %s", bc);
 }
+
 
 void ether_llvm_init(ether e) {
     e->lex            = new(array, alloc, 32);
@@ -415,13 +458,14 @@ void ether_llvm_init(ether e) {
     e->builder = LLVMCreateBuilderInContext(e->module_ctx);
 }
 
+
 void ether_init(ether e) {
+    ether_llvm_init(e);
     e->lex = new(array, alloc, 32);
     push(e);
-
-    ether_llvm_init(e);
     ether_define_primitive(e);
 }
+
 
 void ether_destructor(ether e) {
     LLVMDisposeBuilder(e->builder);
@@ -430,6 +474,7 @@ void ether_destructor(ether e) {
     LLVMContextDispose(e->module_ctx);
     LLVMDisposeMessage(e->target_triple);
 }
+
 
 type preferred_type(ether e, type t0, type t1) {
     if (t0 == t1) return t0;
@@ -447,10 +492,11 @@ type preferred_type(ether e, type t0, type t1) {
     return t1;
 }
 
-LLVMValueRef convert(ether e, LLVMValueRef vr, member type) {
+
+LLVMValueRef convert(ether e, LLVMValueRef vr, type type) {
     /// ether may have conversion rules on limiting truncation, however these are default
     LLVMTypeRef  src_type  = LLVMTypeOf(vr);
-    LLVMTypeRef  dst_type = type->type;
+    LLVMTypeRef  dst_type = type->ref;
     LLVMTypeKind src_kind = LLVMGetTypeKind(src_type);
     LLVMTypeKind dst_kind = LLVMGetTypeKind(dst_type);
 
@@ -501,19 +547,24 @@ LLVMValueRef convert(ether e, LLVMValueRef vr, member type) {
     return NULL;
 }
 
+
 LLVMValueRef operand(ether e, object op) {
          if (inherits(op,   node)) return ((node)op)->value;
-    else if (inherits(op,     u8)) return LLVMConstInt (edef( "u8")->type, *( u8*)op, 0);
-    else if (inherits(op,    u16)) return LLVMConstInt (edef("u16")->type, *(u16*)op, 0);
-    else if (inherits(op,    u32)) return LLVMConstInt (edef("u32")->type, *(u32*)op, 0);
-    else if (inherits(op,    u64)) return LLVMConstInt (edef("u64")->type, *(u64*)op, 0);
-    else if (inherits(op,     i8)) return LLVMConstInt (edef( "i8")->type, *( i8*)op, 0);
-    else if (inherits(op,    i16)) return LLVMConstInt (edef("i16")->type, *(i16*)op, 0);
-    else if (inherits(op,    i32)) return LLVMConstInt (edef("i32")->type, *(i32*)op, 0);
-    else if (inherits(op,    i64)) return LLVMConstInt (edef("i64")->type, *(i64*)op, 0);
-    else if (inherits(op,    f32)) return LLVMConstReal(edef("f32")->type, *(f32*)op);
-    else if (inherits(op,    f64)) return LLVMConstReal(edef("f64")->type, *(f64*)op);
-    else if (inherits(op, string)) return LLVMBuildGlobalStringPtr(e->builder, ((string)op)->chars, "chars");
+    else if (inherits(op,     u8)) return LLVMConstInt (edef( "u8")->ref, *( u8*)op, 0);
+    else if (inherits(op,    u16)) return LLVMConstInt (edef("u16")->ref, *(u16*)op, 0);
+    else if (inherits(op,    u32)) return LLVMConstInt (edef("u32")->ref, *(u32*)op, 0);
+    else if (inherits(op,    u64)) return LLVMConstInt (edef("u64")->ref, *(u64*)op, 0);
+    else if (inherits(op,     i8)) return LLVMConstInt (edef( "i8")->ref, *( i8*)op, 0);
+    else if (inherits(op,    i16)) return LLVMConstInt (edef("i16")->ref, *(i16*)op, 0);
+    else if (inherits(op,    i32)) return LLVMConstInt (edef("i32")->ref, *(i32*)op, 0);
+    else if (inherits(op,    i64)) return LLVMConstInt (edef("i64")->ref, *(i64*)op, 0);
+    else if (inherits(op,    f32)) return LLVMConstReal(edef("f32")->ref, *(f32*)op);
+    else if (inherits(op,    f64)) return LLVMConstReal(edef("f64")->ref, *(f64*)op);
+    else if (inherits(op, string)) {
+        LLVMTypeRef  gs      = LLVMBuildGlobalStringPtr(e->builder, ((string)op)->chars, "chars");
+        LLVMValueRef cast_i8 = LLVMBuildBitCast(e->builder, gs, LLVMPointerType(LLVMInt8Type(), 0), "cast_i8*");
+        return cast_i8;
+    }
     else {
         error("unsupported type in ether_add");
         return NULL;
@@ -522,7 +573,7 @@ LLVMValueRef operand(ether e, object op) {
 
 node ether_freturn(ether e, object o) {
     function fn = e->current_fn;
-    /// fn->rtype->type is the LLVMTypeRef for this function
+    /// fn->rtype->ref is the LLVMTypeRef for this function
     /// if 'operand' doesnt equal teh same type, lets convert it
     LLVMValueRef vr = convert(e, operand(e, o), fn->rtype);
     return new(node, mod, e, value, LLVMBuildRet(e->builder, vr));
@@ -532,16 +583,25 @@ node ether_fcall(ether e, type fdef, member target, map args) {
     int n_args = len(args);
     LLVMValueRef* arg_values = calloc((target != null) + n_args, sizeof(LLVMValueRef));
 
+    // LLVMTypeRef printf_args[] = { LLVMPointerType(LLVMInt8Type(), 0) }; // printf takes char* as the first argument
+    // LLVMTypeRef printf_type = LLVMFunctionType(LLVMInt32Type(), printf_args, 1, true); // true indicates varargs
+    // LLVMValueRef printf_func = LLVMAddFunction(e->module, "printf", fdef->ref);
+    // LLVMValueRef global_str = operand(e, str("hello"));
+    // LLVMValueRef args1[] = { global_str };
+    // LLVMBuildCall2(e->builder, fdef->ref, printf_func, args1, 1, "call_printf");
+
     int index = 0;
     if (target)
         arg_values[index++] = target->value;
     pairs (args, i) {
-        LLVMValueRef vr = arg_values[index++] = operand(e, i->value);
+        object value = i->value;
+        AType vtype = isa(value);
+        LLVMValueRef vr = arg_values[index++] = operand(e, value);
         print("vr = %p", vr);
     }
 
-    //verify (LLVMTypeOf(fdef->function->value) == fdef->type, "integrity check failure");
-    LLVMTypeRef  F = fdef->type;
+    //verify (LLVMTypeOf(fdef->function->value) == fdef->ref, "integrity check failure");
+    LLVMTypeRef  F = fdef->ref;
     LLVMValueRef V = fdef->function->value;
     LLVMValueRef R = LLVMBuildCall2(e->builder, F, V, arg_values, index, "call");
     free(arg_values);
@@ -608,47 +668,37 @@ type ether_function(
         ether e,           cstr name, type target,
         type  return_type, map  args, bool va_args, subprocedure builder)
 {
-    LLVMTypeRef      rtype     = return_type->type;
+    LLVMTypeRef      rtype     = return_type->ref;
     int              n_args    = len(args);
-    LLVMMetadataRef* arg_meta  = calloc((target != null) + n_args, sizeof(LLVMTypeRef));
     LLVMTypeRef*     arg_types = calloc((target != null) + n_args, sizeof(LLVMTypeRef));
     int              index     = 0;
 
     if (target)
-        arg_types[index++] = LLVMPointerType(target->type, 0);
+        arg_types[index++] = LLVMPointerType(target->ref, 0);
 
+    print("function %s", name);
     pairs(args, i) {
-        member arg_mem     = i->value;
-        arg_types[index++] = arg_mem->type;
+        member arg = i->value;
+        arg_types[index++] = arg->type->ref;
+        print("arg type [%i] = %s", index - 1,
+            LLVMPrintTypeToString(arg->type->ref));
     }
 
-    string fname = str(name);
+    string       fname    = str(name);
+    LLVMTypeRef  fn_type  = LLVMFunctionType(rtype, arg_types, index, va_args);
+    LLVMValueRef fn_value = LLVMAddFunction(e->module, fname->chars, fn_type);
+
     type   fdef  = new(type,
-        name,     fname,  type,   LLVMFunctionType(return_type->type, arg_types, index, va_args),
+        name,     fname,  ref,    fn_type,    mod, e,
         function, null,   mdl,    model_function);
+
     function fn  = new(function,
-        name,     fname,    target, target,
-        type,     fdef,     rtype,  return_type->type,
-        builder,  builder,  value,  LLVMAddFunction(e->module, fname->chars, fdef->type));
+        name,     fname,    target, target, mod, e,     args, args,
+        type,     fdef,     rtype,  return_type,
+        builder,  builder,  value,  fn_value);
     fdef->function = fn;
 
-    pairs(args, i) { // index == 0 at start
-        member arg_mem     = i->value;
-        verify(fn->scope, "fn scope not set");
-        arg_meta[index] = LLVMDIBuilderCreateParameterVariable(
-            e->dbg, fn->scope, arg_mem->name->chars, strlen(arg_mem->name->chars),
-            index + 1, e->file, arg_mem->name->line, arg_mem->type->dbg, 1, LLVMDIFlagZero);
-        LLVMDIBuilderInsertDeclareAtEnd(
-            e->dbg, arg_mem->value, arg_meta[index],
-            LLVMBuildAlloca(e->builder, arg_mem->type->type, "arg_alloca"),
-            LLVMDIBuilderCreateDebugLocation(e->module_ctx, arg_mem->type->line, 0, fn->scope, NULL),
-            LLVMGetInsertBlock(e->builder));
-        arg_types[index++] = arg_mem->type;
-    }
-
     set(e->defs, fname, fdef);
-
-    free(arg_meta);
     free(arg_types);
 
     LLVMSetLinkage(fdef->function->value,
@@ -687,7 +737,6 @@ type ether_function(
     return fdef;
 }
 
-#define create_member(E, T, R, N) new(member, mod, E, name, str(N), is_ref, R, type, get(E->defs, str(T)));
 
 void ether_builder_main(ether e, function fn, map ctx) {
     print("we may build the function now");
@@ -697,11 +746,12 @@ void ether_builder_main(ether e, function fn, map ctx) {
     //fdef(printf, rtype, template, true);
 
     type   printf   = ecall(function,
-        "printf", null,  rmem, map_of("template", template, null), true, null);
-    map    args     = map_of("template", str("something %llu"), "value", A_u64(1024 * 44), null);
+        "printf", null,  rmem->type, map_of("template", template, null), true, null);
+    map    args     = map_of("template", str("something"), null);
     node   n_printf = ecall(fcall,   printf, null, args);
     node   n_ret    = ecall(freturn, i(1));
 }
+
 
 void ether_build(ether e) {
     pairs(e->defs, i) {
@@ -711,6 +761,31 @@ void ether_build(ether e) {
             if (fn->builder) {
                 e->current_fn = fn;
                 LLVMPositionBuilderAtEnd(e->builder, fn->entry);
+
+                /// we may start building now, that includes this debug information for the function args
+                int index = 0;
+                pairs(fn->args, i) { // index == 0 at start
+                    member arg_mem     = i->value;
+                    verify(fn->scope, "fn scope not set");
+
+                    unsigned arg_count = LLVMCountParams(fn->value);
+                    verify(index < arg_count, "Argument index out of bounds");
+
+                    LLVMMetadataRef m = LLVMDIBuilderCreateParameterVariable(
+                        e->dbg, fn->scope, arg_mem->name->chars, len(arg_mem->name),
+                        index + 1, e->file, arg_mem->name->line, arg_mem->type->dbg, 1, LLVMDIFlagZero);
+                    LLVMValueRef arg_value = LLVMGetParam(fn->value, index);
+                    //LLVMValueRef arg_alloc = LLVMBuildAlloca(e->builder, arg_mem->type->type, "arg_alloca");
+
+                    LLVMMetadataRef expr = LLVMDIBuilderCreateExpression(e->dbg, NULL, 0);
+                    print("debug %s", LLVMPrintValueToString(arg_value));
+                    LLVMDIBuilderInsertDeclareAtEnd(
+                        e->dbg, arg_value, m, expr,
+                        LLVMDIBuilderCreateDebugLocation(e->module_ctx, arg_mem->type->line, 0, fn->scope, NULL),
+                        LLVMGetInsertBlock(e->builder));
+                    index++;
+                }
+
                 invoke(fn->builder, f);
                 e->current_fn = null;
             }
@@ -718,7 +793,6 @@ void ether_build(ether e) {
     }
 }
 
-#define no_target null
 
 void main() {
     A_start();
@@ -736,7 +810,7 @@ void main() {
 
     /// create function named main
     type fdef = ecall(
-        function, "main", no_target, ret, args, false,
+        function, "main", no_target, ret->type, args, false,
         subproc(e, &ether_builder_main, null));
     
     ecall(build);
