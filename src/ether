@@ -15,8 +15,6 @@ typedef struct type*        type;
 typedef struct member*      member;
 typedef struct function*    function;
 
-
-
 #define token_schema(X,Y) \
     i_prop      (X,Y,  required, cstr,      chars) \
     i_prop      (X,Y,  public,  sz,         len) \
@@ -76,6 +74,7 @@ typedef void* LLVMScope;
 
 #define context_schema(X,Y)\
     i_prop    (X,Y, intern,     LLVMScope,              scope) \
+    i_prop    (X,Y, intern,     type,                   rtype) \
     i_prop    (X,Y, intern,     map,                    members) \
     i_override(X,Y, method,     init)
 #ifndef context_intern
@@ -121,8 +120,10 @@ declare_mod(type, node)
 
 #define member_schema(X,Y) \
     i_prop(    X,Y, public,     bool,                   is_ref) \
-    i_prop(    X,Y, intern,     bool,                   is_static) \
-    i_prop(    X,Y, intern,     bool,                   is_const) \
+    i_prop(    X,Y, public,     bool,                   is_static) \
+    i_prop(    X,Y, public,     bool,                   is_const) \
+    i_prop(    X,Y, public,     bool,                   is_assigned) \
+    i_prop(    X,Y, public,     bool,                   is_function) \
     i_prop(    X,Y, required,   type,                   type) \
     i_prop(    X,Y, intern,     interface,              access) \
     i_prop(    X,Y, intern,     LLVMMetadataRef,        dbg) \
@@ -189,6 +190,12 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     node,       sub,        object, object) \
     i_method  (X,Y, public,     node,       mul,        object, object) \
     i_method  (X,Y, public,     node,       div,        object, object) \
+    i_method  (X,Y, public,     node,       assign_add, object, object) \
+    i_method  (X,Y, public,     node,       assign_sub, object, object) \
+    i_method  (X,Y, public,     node,       assign_mul, object, object) \
+    i_method  (X,Y, public,     node,       assign_div, object, object) \
+    i_method  (X,Y, public,     node,       eq,         node, node) \
+    i_method  (X,Y, public,     node,       not_eq,     node, node) \
     i_method  (X,Y, public,     node,       fcall,      function, member, map) \
     i_method  (X,Y, public,     node,       freturn,    object) \
     i_method  (X,Y, public,     member,     lookup,     string) \

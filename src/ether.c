@@ -296,6 +296,44 @@ void ret_init(ret op) {
     /// lets create everything we need for LLVM call here
 }
 
+#define value(vr) new(node, mod, e, value, vr)
+
+type ether_return_type(ether e) {
+    for (int i = len(e->lex) - 1; i >= 0; i--) {
+        context t = e->lex->elements[i];
+        if (t->rtype) return t->rtype;
+    }
+    return null;
+}
+
+node ether_assign(ether e, node L, node R) {
+    return value(LLVMBuildStore(e->builder, R->value, L->value));
+}
+node ether_assign_add(ether e, node L, node R) {
+    return value(LLVMBuildAdd (e->builder, R->value, L->value, "assign-add"));
+}
+node ether_assign_sub(ether e, node L, node R) {
+    return value(LLVMBuildSub (e->builder, R->value, L->value, "assign-sub"));
+}
+node ether_assign_mul(ether e, node L, node R) {
+    return value(LLVMBuildMul (e->builder, R->value, L->value, "assign-mul"));
+}
+node ether_assign_div(ether e, node L, node R) {
+    return value(LLVMBuildSDiv(e->builder, R->value, L->value, "assign-div"));
+}
+node ether_assign_mod(ether e, node L, node R) {
+    return value(LLVMBuildSRem(e->builder, R->value, L->value, "assign-mod"));
+}
+node ether_assign_or (ether e, node L, node R) {
+    return value(LLVMBuildOr  (e->builder, R->value, L->value, "assign-or"));
+}
+node ether_assign_and(ether e, node L, node R) {
+    return value(LLVMBuildAnd (e->builder, R->value, L->value, "assign-and"));
+}
+node ether_assign_xor(ether e, node L, node R) {
+    return value(LLVMBuildXor (e->builder, R->value, L->value, "assign-xor"));
+}
+
 void ether_define_primitive(ether e) {
     map defs = e->defs = new(map, hsize, 64);
     set(defs, str("bool"),    new(type, mod, e, name, str("bool"),   mdl, model_bool, imported, typeid(bool)));
@@ -589,12 +627,66 @@ LLVMValueRef operand(ether e, object op) {
     }
 }
 
+node ether_is(silver mod, node L,  node R) {
+    type    t0 = ecall(typeof, L);
+    type    t1 = ecall(typeof, R);
+    assert(member->def->mdl == model_bool, "inherits operator must return a boolean type");
+    assert(LLVMGetTypeKind(LLVMTypeOf(L))  == LLVMFunctionTypeKind &&
+           LLVMGetTypeKind(LLVMTypeOf(R)) == LLVMFunctionTypeKind, 
+           "is operator expects function type or initializer");
+    bool      equals = t0 == t1;
+    LLVMValueRef yes = LLVMConstInt(LLVMInt1Type(), 1, 0);
+    LLVMValueRef no  = LLVMConstInt(LLVMInt1Type(), 0, 0);
+    return value(equals ? yes : no);
+}
+
+node ether_inherits(silver mod, node L,  node R) {
+    type    t0 = ecall(typeof, L);
+    type    t1 = ecall(typeof, R);
+    assert(member->def->mdl == model_bool, "inherits operator must return a boolean type");
+    assert(LLVMGetTypeKind(LLVMTypeOf(L)) == LLVMFunctionTypeKind &&
+           LLVMGetTypeKind(LLVMTypeOf(R)) == LLVMFunctionTypeKind, 
+           "is operator expects function type or initializer");
+    bool      equals = t0 == t1;
+    LLVMValueRef yes = LLVMConstInt(LLVMInt1Type(), 1, 0);
+    LLVMValueRef no  = LLVMConstInt(LLVMInt1Type(), 0, 0);
+    def cur = t0;
+    while (cur) {
+        if (cur == t1)
+            return yes;
+        cur = cur->origin;
+    }
+    return no;
+}
+
+node ether_eq(ether e, node L, node R) {
+    type    t0 = ecall(typeof, L);
+    type    t1 = ecall(typeof, R);
+    verify (t0 == t1, "types must be same at primitive operation level");
+    bool    i0 = t0->mdl >= model_bool && t0->mdl <= model_i64;
+    bool    f0 = t0->mdl >= model_f32  && t0->mdl <= model_f64;
+    if (i0 || !f0)
+        return LLVMBuildICmp(mod->builder, LLVMIntEQ,   L->value, R->value, "eq-i");
+    return     LLVMBuildFCmp(mod->builder, LLVMRealOEQ, L->value, R->value, "eq-f");
+}
+
+node ether_not_eq(ether e, node L, node R) {
+    type    t0 = ecall(typeof, L);
+    type    t1 = ecall(typeof, R);
+    verify (t0 == t1, "types must be same at primitive operation level");
+    bool    i0 = t0->mdl >= model_bool && t0->mdl <= model_i64;
+    bool    f0 = t0->mdl >= model_f32  && t0->mdl <= model_f64;
+    if (i0 || !f0)
+        return LLVMBuildICmp(mod->builder, LLVMIntNE,   L->value, R->value, "not-eq-i");
+    return     LLVMBuildFCmp(mod->builder, LLVMRealONE, L->value, R->value, "not-eq-f");
+}
+
 node ether_freturn(ether e, object o) {
     function fn = e->current_fn;
     /// fn->rtype->ref is the LLVMTypeRef for this function
     /// if 'operand' doesnt equal teh same type, lets convert it
     LLVMValueRef vr = convert(e, operand(e, o), fn->rtype);
-    return new(node, mod, e, value, LLVMBuildRet(e->builder, vr));
+    return value(LLVMBuildRet(e->builder, vr));
 }
 
 node ether_fcall(ether e, type fdef, member target, map args) {
@@ -623,12 +715,12 @@ node ether_fcall(ether e, type fdef, member target, map args) {
     LLVMValueRef V = fdef->function->value;
     LLVMValueRef R = LLVMBuildCall2(e->builder, F, V, arg_values, index, "call");
     free(arg_values);
-    return new(node, mod, e, value, R);
+    return value(R);
 }
 
 node ether_op(ether e, OPType optype, object L, object R) {
-    node LV = new(node, mod, e, value, operand(e, L));
-    node RV = new(node, mod, e, value, operand(e, R));
+    node LV = value(operand(e, L));
+    node RV = value(operand(e, R));
     if (!LV || !RV) {
         error("Invalid operands in ether_add");
         return NULL;
@@ -776,6 +868,8 @@ void ether_build(ether e) {
             if (fn->builder) {
                 e->current_fn = fn;
                 LLVMPositionBuilderAtEnd(e->builder, fn->entry);
+                context ctx = push(e);
+                ctx->rtype = fn->rtype;
 
                 /// we may start building now, that includes this debug information for the function args
                 int index = 0;
@@ -803,6 +897,7 @@ void ether_build(ether e) {
 
                 invoke(fn->builder, f);
                 e->current_fn = null;
+                pop(e);
             }
         }
     }
