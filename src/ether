@@ -1,8 +1,7 @@
-#ifndef _SILVER_
-#define _SILVER_
+#ifndef _ETHER_
+#define _ETHER_
 
 #include <A>
-#include <ether-classes>
 
 /// @brief the ether should be considered mysterious, and magical.
 /// because nobody can retain information on what LLVM does, due to 
@@ -24,6 +23,7 @@ typedef struct function*    function;
     i_prop      (X,Y,  public,  num,        line) \
     i_prop      (X,Y,  public,  num,        column) \
     i_prop      (X,Y,  public,  A,          literal) \
+    i_method    (X,Y,  public,  AType,      get_type) \
     i_method    (X,Y,  public,  bool,       eq,         cstr) \
     i_method    (X,Y,  public,  num,        cmp,        cstr) \
     i_method    (X,Y,  public,  sz,         len) \
@@ -190,8 +190,11 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     node,       div,        object, object) \
     i_method  (X,Y, public,     node,       fcall,      function, member, map) \
     i_method  (X,Y, public,     node,       freturn,    object) \
+    i_method  (X,Y, public,     member,     lookup,     string) \
     i_method  (X,Y, public,     context,    push) \
     i_method  (X,Y, public,     context,    pop) \
+    i_method  (X,Y, public,     context,    top) \
+    i_method  (X,Y, public,     none,       write) \
     i_prop    (X,Y, required,   path,                   source) \
     i_prop    (X,Y, intern,     path,                   current_include) \
     i_prop    (X,Y, intern,     function,               current_fn) \

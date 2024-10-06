@@ -18,6 +18,7 @@ typedef LLVMMetadataRef LLVMScope;
 #define function_intern  intern(function)
 #define       op_intern  intern(op)
 #define      ret_intern  intern(ret)
+#define    token_intern  intern(token)
 
 #include <ether>
 
@@ -68,17 +69,37 @@ void init() {
 
 module_init(init);
 
+A read_numeric(token a) {
+    cstr cs = cs(a);
+    bool is_digit = cs[0] >= '0' && cs[0] <= '9';
+    bool has_dot  = strstr(cs, ".") != 0;
+    if (!is_digit && !has_dot)
+        return null;
+    char* e = null;
+    if (!has_dot) {
+        i64 v = strtoll(cs, &e, 10);
+        return A_primitive(typeid(i64), &v);
+    }
+    f64 v = strtod(cs, &e);
+    return A_primitive(typeid(f64), &v);
+}
+
 /// 'im a token' -- Baldeck reg. Token Ring breakdown.  et al
 void token_init(token a) {
     cstr prev = a->chars;
     sz length = a->len ? a->len : strlen(prev);
     a->chars  = (cstr)calloc(length + 1, 1);
     a->len    = length;
-    if (strcmp(a->chars, "argc") == 0) {
-        int test = 0;
-        test++;
-    }
     memcpy(a->chars, prev, length);
+
+    if (a->chars[0] == '\"' || a->chars[0] == '\'') {
+        a->literal = new(string, chars, &a->chars[1], ref_length, length - 2);
+    } else
+        a->literal = read_numeric(a);
+}
+
+AType token_get_type(token a) {
+    return a->literal ? isa(a->literal) : null;
 }
 
 sz token_len(token a) {
@@ -103,20 +124,6 @@ AType token_is_bool(token a) {
         (AType)typeid(bool) : null;
 }
 
-A token_is_numeric(token a) {
-    bool is_digit = a->chars[0] >= '0' && a->chars[0] <= '9';
-    bool has_dot  = strstr(a->chars, ".") != 0;
-    if (!is_digit && !has_dot)
-        return null;
-    char* e = null;
-    if (!has_dot) {
-        i64 v = strtoll(a->chars, &e, 10);
-        return A_primitive(typeid(i64), &v);
-    }
-    f64 v = strtod(a->chars, &e);
-    return A_primitive(typeid(f64), &v);
-}
-
 num token_compare(token a, token b) {
     return strcmp(a->chars, b->chars);
 }
@@ -128,7 +135,7 @@ bool token_cast_bool(token a) {
 
 LLVMMetadataRef primitive_dbg(type def) {
     return LLVMDIBuilderCreateBasicType(
-        def->mod->dbg, def->name->chars, def->name->len, def->size,
+        def->mod->dbg, cs(def->name), len(def->name), def->size,
         def->name->chars[0] == 'f' ? 0x04 : 0x05, 0);
 }
 
@@ -156,7 +163,7 @@ void type_init(type def) {
 
     if (def->name && inherits(def->name, string)) {
         string n = def->name;
-        def->name = new(token, chars, n->chars, source, e->source, line, 1);
+        def->name = new(token, chars, cs(n), source, e->source, line, 1);
     }
     // create for users of this data
     //def->context = new(context);
@@ -189,7 +196,7 @@ void type_init(type def) {
                 type origin = def->origin;
                 verify(origin, "origin not resolved");
                 def->dbg = LLVMDIBuilderCreateTypedef(
-                    e->dbg, def->origin->dbg, def->name->chars, len(def->name),
+                    e->dbg, def->origin->dbg, cs(def->name), len(def->name),
                     e->file, 0, e->scope, LLVMDIFlagZero);
             }
             break;
@@ -254,7 +261,7 @@ void member_init(member mem) {
     context top = e->top;
     if (inherits(mem->name, string)) {
         string n = mem->name;
-        mem->name = new(token, chars, n->chars, source, e->source, line, 1);
+        mem->name = new(token, chars, cs(n), source, e->source, line, 1);
     }
 
     verify (mem->type->dbg, "no debug info on type");
@@ -263,7 +270,7 @@ void member_init(member mem) {
     mem->dbg = LLVMDIBuilderCreateMemberType(
         e->dbg,                // LLVMDIBuilderRef
         e->compile_unit, //top->scope,            // Scope of the member (can be the struct or class)
-        mem->name->chars,      // Name of the member
+        cs(mem->name),         // Name of the member
         name_len,              // Length of the name
         e->file,               // The file where the member is declared
         mem->name->line,       // Line number where the member is declared
@@ -334,6 +341,16 @@ type ether_find_def(ether e, string name) {
     return get(e->defs, name);
 }
 
+/// look up a member in lexical scope
+member ether_lookup(ether e, string name) {
+    for (int i = len(e->lex) - 1; i >= 0; i--) {
+        context t = e->lex->elements[i];
+        member  m = get(t->members, name);
+        if (m)
+            return  m;
+    }
+    return null;
+}
 
 context ether_push(ether e) {
     context t = new(context);
@@ -408,16 +425,17 @@ void ether_write(ether e) {
     else
         print("module verified");
 
-    if (!LLVMPrintModuleToFile(e->module, "a.ll", &err))
-        print("generated IR");
+    path ll = form(path, "%o.ll", e->name);
+    path bc = form(path, "%o.bc", e->name);
+    if (!LLVMPrintModuleToFile(e->module, cs(ll), &err))
+        print("IR: %o", ll);
     else
         fault("LLVMPrintModuleToFile failed");
 
-    symbol bc = "a.bc";
-    if (LLVMWriteBitcodeToFile(e->module, bc) != 0)
+    if (LLVMWriteBitcodeToFile(e->module, cs(bc)) != 0)
         fault("LLVMWriteBitcodeToFile failed");
     else
-        print("bitcode written to %s", bc);
+        print("bitcode: %o", bc);
 }
 
 
@@ -739,11 +757,8 @@ type ether_function(
 
 
 void ether_builder_main(ether e, function fn, map ctx) {
-    print("we may build the function now");
-    
     member rmem     = create_member(e, "i64", false, ".rtype");
     member template = create_member(e, "i8",  true,  "template");
-    //fdef(printf, rtype, template, true);
 
     type   printf   = ecall(function,
         "printf", null,  rmem->type, map_of("template", template, null), true, null);
@@ -793,10 +808,16 @@ void ether_build(ether e) {
     }
 }
 
+context ether_top(ether e) {
+    return e->top;
+}
+
 
 void main() {
     A_start();
     print("lets emit the llvm here, and abstract A-type for the basic declaration set");
+    /// model data from 'member' was merged with 'def' to form a 'type'.  its better this way
+    /// although complexity may arise with types, most of which we should not handle until we need to do so
     path    src   = new(path,  chars, "WGPU.si");
     ether   e     = new(ether, lang, str("silver"), source, src, name, str("module"));
     member  argc  = create_member(e, "i32",    0, "argc");
