@@ -29,6 +29,18 @@ typedef LLVMMetadataRef LLVMScope;
 
 static map operators;
 
+bool is_bool     (type f) { return f->mdl == model_bool; }
+bool is_float    (type f) { return f->mdl == model_f32; }
+bool is_double   (type f) { return f->mdl == model_f64; }
+bool is_realistic(type f) { return f->mdl >= model_f32   && f->mdl <= model_f64; }
+bool is_integral (type f) { return f->mdl >= model_bool  && f->mdl <= model_i64; }
+bool is_signed   (type f) { return f->mdl >= model_i8  && f->mdl <= model_i64; }
+bool is_unsigned (type f) { return f->mdl >= model_u8  && f->mdl <= model_u64; }
+bool is_object   (type f) { return f->mdl == model_class || f->mdl == model_struct; }
+bool is_class    (type f) { return f->mdl == model_class; }
+bool is_struct   (type f) { return f->mdl == model_struct; }
+bool is_ref      (type f) { return f->depth > 0; }
+
 void init() {
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
@@ -296,7 +308,84 @@ void ret_init(ret op) {
     /// lets create everything we need for LLVM call here
 }
 
-#define value(vr) new(node, mod, e, value, vr)
+#define value(def,vr) new(node, mod, e, value, vr, type, def)
+
+node ether_get_ref(ether e, node expr, type of_type) {
+    type ref_type = new(type, mod, e,
+        mdl,    model_typedef,
+        origin, of_type,
+        depth,  1); // if type has depth, we are creating another depth to it. origin logic should work with both aliasing and referencing
+    LLVMValueRef ref_value = LLVMBuildGEP2(e->builder, ref_type->ref, expr->value, NULL, 0, "ref_expr");
+    return LLVMBuildLoad2(e->builder, of_type->ref, expr->value, "ref_expr"); // Build the reference
+}
+
+node ether_load(ether e, member mem) {
+    print ("member type = %s", LLVMPrintTypeToString(LLVMTypeOf(mem->type->ref)));
+    LLVMValueRef vr = LLVMBuildLoad2(e->builder, mem->type->ref, mem->value, "load-member");
+    return new(node, mod, e, type, mem->type, value, vr);
+}
+
+/// this is the cast caller, too
+node ether_convert(ether e, node expr, type rtype) {
+    type         F = expr->type;
+    type         T = rtype;
+    LLVMValueRef V = NULL;
+
+    if (F == T) return expr;  // No cast needed
+
+    // Get the LLVM type kinds of source and destination types
+    LLVMTypeKind F_kind = LLVMGetTypeKind(F->ref);
+    LLVMTypeKind T_kind = LLVMGetTypeKind(T->ref);
+
+    // Integer to Integer conversion
+    if (F_kind == LLVMIntegerTypeKind && T_kind == LLVMIntegerTypeKind)
+        uint F_bits = LLVMGetIntTypeWidth(F->ref), T_bits = LLVMGetIntTypeWidth(T->ref);
+        if (F_bits < T_bits)
+            V = is_signed(F) ? LLVMBuildSExt(e->builder, expr->value, T->ref, "sext")
+                             : LLVMBuildZExt(e->builder, expr->value, T->ref, "zext");
+        else if (F_bits > T_bits)
+            V = LLVMBuildTrunc(e->builder, expr->value, T->ref, "trunc");
+        else
+            V = LLVMBuildIntCast(e->builder, expr->value, T->ref, "intcast");
+
+    // Integer to Float conversion
+    else if (F_kind == LLVMIntegerTypeKind && (T_kind == LLVMFloatTypeKind || T_kind == LLVMDoubleTypeKind))
+        V = is_signed(F) ? LLVMBuildSIToFP(e->builder, expr->value, T->ref, "sitofp")
+                         : LLVMBuildUIToFP(e->builder, expr->value, T->ref, "uitofp");
+
+    // Float to Integer conversion
+    else if ((F_kind == LLVMFloatTypeKind || F_kind == LLVMDoubleTypeKind) && T_kind == LLVMIntegerTypeKind)
+        V = is_signed(T) ? LLVMBuildFPToSI(e->builder, expr->value, T->ref, "fptosi")
+                         : LLVMBuildFPToUI(e->builder, expr->value, T->ref, "fptoui");
+
+    // Float to Float conversion
+    else if ((F_kind == LLVMFloatTypeKind || F_kind == LLVMDoubleTypeKind) && 
+             (T_kind == LLVMFloatTypeKind || T_kind == LLVMDoubleTypeKind))
+        V = F_kind == LLVMDoubleTypeKind && T_kind == LLVMFloatTypeKind ? 
+            LLVMBuildFPTrunc(e->builder, expr->value, T->ref, "fptrunc") :
+            LLVMBuildFPExt  (e->builder, expr->value, T->ref, "fpext");
+
+    // Pointer to Pointer conversion
+    else if (is_ref(F) && is_ref(T))
+        V = LLVMBuildPointerCast(e->builder, expr->value, T->ref, "ptr_cast");
+
+    // Pointer to Integer conversion
+    else if (is_ref(F) && is_integral(T))
+        V = LLVMBuildPtrToInt(e->builder, expr->value, T->ref, "ptr_to_int");
+
+    // Integer to Pointer conversion
+    else if (is_integral(F) && is_ref(T))
+        V = LLVMBuildIntToPtr(e->builder, expr->value, T->ref, "int_to_ptr");
+
+    // Bitcast for same-size types
+    else if (F_kind == T_kind)
+        V = LLVMBuildBitCast(e->builder, expr->value, T->ref, "bitcast");
+
+    else
+        fault("Unsupported cast from %o to %o", estr(model, F->mdl), estr(model, T->mdl));
+
+    return value(T,V);
+}
 
 type ether_return_type(ether e) {
     for (int i = len(e->lex) - 1; i >= 0; i--) {
@@ -306,32 +395,66 @@ type ether_return_type(ether e) {
     return null;
 }
 
-node ether_assign(ether e, node L, node R) {
-    return value(LLVMBuildStore(e->builder, R->value, L->value));
+
+static node operand(ether e, object op) {
+
+         if (inherits(op,   node)) return op;
+    else if (inherits(op,     u8)) return value(edef("u8"),  LLVMConstInt (edef( "u8")->ref, *( u8*)op, 0));
+    else if (inherits(op,    u16)) return value(edef("u16"), LLVMConstInt (edef("u16")->ref, *(u16*)op, 0));
+    else if (inherits(op,    u32)) return value(edef("u32"), LLVMConstInt (edef("u32")->ref, *(u32*)op, 0));
+    else if (inherits(op,    u64)) return value(edef("u64"), LLVMConstInt (edef("u64")->ref, *(u64*)op, 0));
+    else if (inherits(op,     i8)) return value(edef("i8"),  LLVMConstInt (edef( "i8")->ref, *( i8*)op, 0));
+    else if (inherits(op,    i16)) return value(edef("i16"), LLVMConstInt (edef("i16")->ref, *(i16*)op, 0));
+    else if (inherits(op,    i32)) return value(edef("i32"), LLVMConstInt (edef("i32")->ref, *(i32*)op, 0));
+    else if (inherits(op,    i64)) return value(edef("i64"), LLVMConstInt (edef("i64")->ref, *(i64*)op, 0));
+    else if (inherits(op,    f32)) return value(edef("f32"), LLVMConstReal(edef("f32")->ref, *(f32*)op));
+    else if (inherits(op,    f64)) return value(edef("f64"), LLVMConstReal(edef("f64")->ref, *(f64*)op));
+    else if (inherits(op, string)) {
+        LLVMTypeRef  gs      = LLVMBuildGlobalStringPtr(e->builder, ((string)op)->chars, "chars");
+        LLVMValueRef cast_i8 = LLVMBuildBitCast(e->builder, gs, LLVMPointerType(LLVMInt8Type(), 0), "cast_i8*");
+        return value(edef("i8"), cast_i8);
+    }
+    else {
+        error("unsupported type in ether_add");
+        return NULL;
+    }
 }
-node ether_assign_add(ether e, node L, node R) {
-    return value(LLVMBuildAdd (e->builder, R->value, L->value, "assign-add"));
+
+node ether_assign(ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildStore(e->builder, RV->value, L->value));
 }
-node ether_assign_sub(ether e, node L, node R) {
-    return value(LLVMBuildSub (e->builder, R->value, L->value, "assign-sub"));
+node ether_assign_add(ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildAdd (e->builder, RV->value, L->value, "assign-add"));
 }
-node ether_assign_mul(ether e, node L, node R) {
-    return value(LLVMBuildMul (e->builder, R->value, L->value, "assign-mul"));
+node ether_assign_sub(ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildSub (e->builder, RV->value, L->value, "assign-sub"));
 }
-node ether_assign_div(ether e, node L, node R) {
-    return value(LLVMBuildSDiv(e->builder, R->value, L->value, "assign-div"));
+node ether_assign_mul(ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildMul (e->builder, RV->value, L->value, "assign-mul"));
 }
-node ether_assign_mod(ether e, node L, node R) {
-    return value(LLVMBuildSRem(e->builder, R->value, L->value, "assign-mod"));
+node ether_assign_div(ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildSDiv(e->builder, RV->value, L->value, "assign-div"));
 }
-node ether_assign_or (ether e, node L, node R) {
-    return value(LLVMBuildOr  (e->builder, R->value, L->value, "assign-or"));
+node ether_assign_mod(ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildSRem(e->builder, RV->value, L->value, "assign-mod"));
 }
-node ether_assign_and(ether e, node L, node R) {
-    return value(LLVMBuildAnd (e->builder, R->value, L->value, "assign-and"));
+node ether_assign_or (ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildOr  (e->builder, RV->value, L->value, "assign-or"));
 }
-node ether_assign_xor(ether e, node L, node R) {
-    return value(LLVMBuildXor (e->builder, R->value, L->value, "assign-xor"));
+node ether_assign_and(ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildAnd (e->builder, RV->value, L->value, "assign-and"));
+}
+node ether_assign_xor(ether e, node L, object R) {
+    node RV = operand(e, R);
+    return value(L->type, LLVMBuildXor (e->builder, RV->value, L->value, "assign-xor"));
 }
 
 void ether_define_primitive(ether e) {
@@ -531,126 +654,128 @@ void ether_destructor(ether e) {
     LLVMDisposeMessage(e->target_triple);
 }
 
+/// C type rules implemented
+type determine_rtype(ether e, OPType optype, type L, type R) {
+    switch (optype) {
+        case OPType__assign:
+        case OPType__assign_add:
+        case OPType__assign_sub:
+        case OPType__assign_mul:
+        case OPType__assign_div:
+        case OPType__assign_or:
+        case OPType__assign_and:
+        case OPType__assign_xor:
+        case OPType__assign_right:
+        case OPType__assign_left:
+        case OPType__mod_assign:
+            return L;  // Assignment operations always return the type of the left operand
+        
+        case OPType__or:
+        case OPType__and:
+        case OPType__xor:
+            if (is_bool(L) && is_bool(R))
+                return edef("bool");  // Logical operations on booleans return boolean
+            // For bitwise operations, fall through to numeric promotion
+            break;
 
-type preferred_type(ether e, type t0, type t1) {
-    if (t0 == t1) return t0;
-    bool f0 = t0->mdl == model_f32 || t0->mdl == model_f64;
-    bool f1 = t1->mdl == model_f32 || t1->mdl == model_f64;
-    if (f0) {
-        if (f1)
-            return (t1->mdl == model_f64) ? t1 : t0;
-        return t0;
+        default:
+            fault("not implemented");
+            break;
     }
-    if (f1)
-        return t1;
-    if (t0->mdl > t1->mdl)
-        return t0;
-    return t1;
+
+    // Numeric type promotion
+    if (is_realistic(L) || is_realistic(R)) {
+        // If either operand is float, result is float
+        if (is_double(L) || is_double(R))
+            return edef("f64");
+        else
+            return edef("f32");
+    }
+
+    // Integer promotion
+    int L_size = L->size;
+    int R_size = R->size;
+    if (L_size > R_size)
+        return L;
+    else if (R_size > L_size)
+        return R;
+
+    bool L_signed = is_signed(L);
+    bool R_signed = is_signed(R);
+    if (L_signed && R_signed)
+        return L;  // Both same size and signed
+    else if (!L_signed && !R_signed)
+        return L;  // Both same size and unsigned
+    
+    return L_signed ? R : L;  // Same size, one signed one unsigned
 }
 
+node ether_negate(ether e, node L) {
+    if (is_float(L->type))
+        return LLVMBuildFNeg(e->builder, L->value, "f-negate");
+    else if (is_signed(L->type)) // our enums should fall into this category
+        return LLVMBuildNeg(e->builder, L->value, "i-negate");
+    else if (is_unsigned(L->type)) {
+        // Convert unsigned to signed, negate, then convert back to unsigned
+        LLVMValueRef signed_value  = LLVMBuildIntCast2(
+            e->builder, L->value, LLVMIntType(L->type->size * 8), 1, "to-signed");
+        LLVMValueRef negated_value = LLVMBuildNeg(
+            e->builder, signed_value, "i-negate");
+        type itype = edef("i64");
+        LLVMValueRef i64_value = LLVMBuildIntCast2(
+            e->builder, negated_value, itype->ref, 1, "to-i64");
 
-LLVMValueRef convert(ether e, LLVMValueRef vr, type type) {
-    /// ether may have conversion rules on limiting truncation, however these are default
-    LLVMTypeRef  src_type  = LLVMTypeOf(vr);
-    LLVMTypeRef  dst_type = type->ref;
-    LLVMTypeKind src_kind = LLVMGetTypeKind(src_type);
-    LLVMTypeKind dst_kind = LLVMGetTypeKind(dst_type);
-
-    // Check if the types are already the same
-    if (src_type == dst_type) {
-        return vr;
-    }
-
-    // Convert between integer types (e.g., i8 to i64)
-    if (src_kind == LLVMIntegerTypeKind && 
-        dst_kind == LLVMIntegerTypeKind) {
-        unsigned src_bits = LLVMGetIntTypeWidth(src_type);
-        unsigned dest_bits = LLVMGetIntTypeWidth(dst_type);
-
-        if (src_bits < dest_bits) {
-            // Extend smaller integer to larger integer (e.g., i8 -> i64)
-            return LLVMBuildZExtOrBitCast(e->builder, vr, dst_type, "zext");
-        } else if (src_bits > dest_bits) {
-            // Truncate larger integer to smaller integer (e.g., i64 -> i8)
-            return LLVMBuildTrunc(e->builder, vr, dst_type, "trunc");
-        }
-    }
-
-    // Convert integer to float
-    if (src_kind == LLVMIntegerTypeKind && 
-        dst_kind == LLVMFloatTypeKind) {
-        return LLVMBuildSIToFP(e->builder, vr, dst_type, "sitofp");
-    }
-
-    // Convert float to integer
-    if (src_kind == LLVMFloatTypeKind && 
-        dst_kind == LLVMIntegerTypeKind) {
-        return LLVMBuildFPToSI(e->builder, vr, dst_type, "fptosi");
-    }
-
-    if (src_kind == LLVMDoubleTypeKind && 
-        dst_kind == LLVMFloatTypeKind) {
-        return LLVMBuildFPTrunc(e->builder, vr, dst_type, "fptrunc");
-    }
-
-    if (src_kind == LLVMFloatTypeKind && 
-        dst_kind == LLVMDoubleTypeKind) {
-        return LLVMBuildFPExt(e->builder, vr, dst_type, "fpext");
-    }
-
-    // If no valid conversion, return NULL and handle the error elsewhere
-    error("Unsupported type conversion");
-    return NULL;
-}
-
-
-LLVMValueRef operand(ether e, object op) {
-         if (inherits(op,   node)) return ((node)op)->value;
-    else if (inherits(op,     u8)) return LLVMConstInt (edef( "u8")->ref, *( u8*)op, 0);
-    else if (inherits(op,    u16)) return LLVMConstInt (edef("u16")->ref, *(u16*)op, 0);
-    else if (inherits(op,    u32)) return LLVMConstInt (edef("u32")->ref, *(u32*)op, 0);
-    else if (inherits(op,    u64)) return LLVMConstInt (edef("u64")->ref, *(u64*)op, 0);
-    else if (inherits(op,     i8)) return LLVMConstInt (edef( "i8")->ref, *( i8*)op, 0);
-    else if (inherits(op,    i16)) return LLVMConstInt (edef("i16")->ref, *(i16*)op, 0);
-    else if (inherits(op,    i32)) return LLVMConstInt (edef("i32")->ref, *(i32*)op, 0);
-    else if (inherits(op,    i64)) return LLVMConstInt (edef("i64")->ref, *(i64*)op, 0);
-    else if (inherits(op,    f32)) return LLVMConstReal(edef("f32")->ref, *(f32*)op);
-    else if (inherits(op,    f64)) return LLVMConstReal(edef("f64")->ref, *(f64*)op);
-    else if (inherits(op, string)) {
-        LLVMTypeRef  gs      = LLVMBuildGlobalStringPtr(e->builder, ((string)op)->chars, "chars");
-        LLVMValueRef cast_i8 = LLVMBuildBitCast(e->builder, gs, LLVMPointerType(LLVMInt8Type(), 0), "cast_i8*");
-        return cast_i8;
+        return value(itype, negated_value);
     }
     else {
-        error("unsupported type in ether_add");
-        return NULL;
+        fault("object negation not valid");
     }
 }
 
-node ether_is(silver mod, node L,  node R) {
-    type    t0 = ecall(typeof, L);
-    type    t1 = ecall(typeof, R);
-    assert(member->def->mdl == model_bool, "inherits operator must return a boolean type");
+node ether_not(ether e, node L) {
+    LLVMValueRef result;
+    if (is_float(L->type)) {
+        // for floats, compare with 0.0 and return true if > 0.0
+        result = LLVMBuildFCmp(e->builder, LLVMRealOLE, L->value,
+                               LLVMConstReal(L->type, 0.0), "float-not");
+    } else if (is_unsigned(L->type)) {
+        // for unsigned integers, compare with 0
+        result = LLVMBuildICmp(e->builder, LLVMIntULE, L->value,
+                               LLVMConstInt(L->type, 0, 0), "unsigned-not");
+    } else {
+        // for signed integers, compare with 0
+        result = LLVMBuildICmp(e->builder, LLVMIntSLE, L->value,
+                               LLVMConstInt(L->type, 0, 0), "signed-not");
+    }
+    return value(edef("bool"), result);
+}
+
+node ether_bitwise_not(ether e, node L) {
+    return LLVMBuildNot(e->builder, L->value, "bitwise-not");
+}
+
+node ether_is(ether e, node L,  node R) {
+    type t0 = L->type;
+    type t1 = R->type;
     assert(LLVMGetTypeKind(LLVMTypeOf(L))  == LLVMFunctionTypeKind &&
            LLVMGetTypeKind(LLVMTypeOf(R)) == LLVMFunctionTypeKind, 
            "is operator expects function type or initializer");
     bool      equals = t0 == t1;
     LLVMValueRef yes = LLVMConstInt(LLVMInt1Type(), 1, 0);
     LLVMValueRef no  = LLVMConstInt(LLVMInt1Type(), 0, 0);
-    return value(equals ? yes : no);
+    return value(edef("bool"), equals ? yes : no);
 }
 
-node ether_inherits(silver mod, node L,  node R) {
-    type    t0 = ecall(typeof, L);
-    type    t1 = ecall(typeof, R);
-    assert(member->def->mdl == model_bool, "inherits operator must return a boolean type");
+node ether_inherits(ether e, node L,  node R) {
+    type t0 = L->type;
+    type t1 = R->type;
     assert(LLVMGetTypeKind(LLVMTypeOf(L)) == LLVMFunctionTypeKind &&
            LLVMGetTypeKind(LLVMTypeOf(R)) == LLVMFunctionTypeKind, 
            "is operator expects function type or initializer");
     bool      equals = t0 == t1;
     LLVMValueRef yes = LLVMConstInt(LLVMInt1Type(), 1, 0);
     LLVMValueRef no  = LLVMConstInt(LLVMInt1Type(), 0, 0);
-    def cur = t0;
+    type cur = t0;
     while (cur) {
         if (cur == t1)
             return yes;
@@ -660,99 +785,126 @@ node ether_inherits(silver mod, node L,  node R) {
 }
 
 node ether_eq(ether e, node L, node R) {
-    type    t0 = ecall(typeof, L);
-    type    t1 = ecall(typeof, R);
+    type t0 = L->type;
+    type t1 = R->type;
     verify (t0 == t1, "types must be same at primitive operation level");
-    bool    i0 = t0->mdl >= model_bool && t0->mdl <= model_i64;
-    bool    f0 = t0->mdl >= model_f32  && t0->mdl <= model_f64;
+    bool i0 = t0->mdl >= model_bool && t0->mdl <= model_i64;
+    bool f0 = t0->mdl >= model_f32  && t0->mdl <= model_f64;
     if (i0 || !f0)
-        return LLVMBuildICmp(mod->builder, LLVMIntEQ,   L->value, R->value, "eq-i");
-    return     LLVMBuildFCmp(mod->builder, LLVMRealOEQ, L->value, R->value, "eq-f");
+        return LLVMBuildICmp(e->builder, LLVMIntEQ,   L->value, R->value, "eq-i");
+    return     LLVMBuildFCmp(e->builder, LLVMRealOEQ, L->value, R->value, "eq-f");
 }
 
 node ether_not_eq(ether e, node L, node R) {
-    type    t0 = ecall(typeof, L);
-    type    t1 = ecall(typeof, R);
+    type t0 = L->type;
+    type t1 = R->type;
     verify (t0 == t1, "types must be same at primitive operation level");
-    bool    i0 = t0->mdl >= model_bool && t0->mdl <= model_i64;
-    bool    f0 = t0->mdl >= model_f32  && t0->mdl <= model_f64;
+    bool i0 = t0->mdl >= model_bool && t0->mdl <= model_i64;
+    bool f0 = t0->mdl >= model_f32  && t0->mdl <= model_f64;
     if (i0 || !f0)
-        return LLVMBuildICmp(mod->builder, LLVMIntNE,   L->value, R->value, "not-eq-i");
-    return     LLVMBuildFCmp(mod->builder, LLVMRealONE, L->value, R->value, "not-eq-f");
+        return LLVMBuildICmp(e->builder, LLVMIntNE,   L->value, R->value, "not-eq-i");
+    return     LLVMBuildFCmp(e->builder, LLVMRealONE, L->value, R->value, "not-eq-f");
 }
 
 node ether_freturn(ether e, object o) {
     function fn = e->current_fn;
     /// fn->rtype->ref is the LLVMTypeRef for this function
     /// if 'operand' doesnt equal teh same type, lets convert it
-    LLVMValueRef vr = convert(e, operand(e, o), fn->rtype);
-    return value(LLVMBuildRet(e->builder, vr));
+    node conv = ether_convert(e, operand(e, o), fn->rtype);
+    return value(fn->rtype, LLVMBuildRet(e->builder, conv->value));
 }
 
-node ether_fcall(ether e, type fdef, member target, map args) {
+node ether_fcall(ether e, type fdef, node target, array args) {
     int n_args = len(args);
     LLVMValueRef* arg_values = calloc((target != null) + n_args, sizeof(LLVMValueRef));
-
-    // LLVMTypeRef printf_args[] = { LLVMPointerType(LLVMInt8Type(), 0) }; // printf takes char* as the first argument
-    // LLVMTypeRef printf_type = LLVMFunctionType(LLVMInt32Type(), printf_args, 1, true); // true indicates varargs
-    // LLVMValueRef printf_func = LLVMAddFunction(e->module, "printf", fdef->ref);
-    // LLVMValueRef global_str = operand(e, str("hello"));
-    // LLVMValueRef args1[] = { global_str };
-    // LLVMBuildCall2(e->builder, fdef->ref, printf_func, args1, 1, "call_printf");
+    //verify (LLVMTypeOf(fdef->function->value) == fdef->ref, "integrity check failure");
+    LLVMTypeRef  F = fdef->ref;
+    map     f_args = fdef->function->args;
+    LLVMValueRef V = fdef->function->value; // todo: args in ether should be a map.  that way we can do a bit more
 
     int index = 0;
     if (target)
         arg_values[index++] = target->value;
-    pairs (args, i) {
-        object value = i->value;
-        AType vtype = isa(value);
-        LLVMValueRef vr = arg_values[index++] = operand(e, value);
+    each (args, object, value) {
+        member    f_arg = fdef->function->args->elements[index];
+        AType     vtype = isa(value);
+        LLVMValueRef vr = arg_values[index++] = ether_convert(e, operand(e, value), f_arg->type)->value;
         print("vr = %p", vr);
+        index++;
     }
-
-    //verify (LLVMTypeOf(fdef->function->value) == fdef->ref, "integrity check failure");
-    LLVMTypeRef  F = fdef->ref;
-    LLVMValueRef V = fdef->function->value;
     LLVMValueRef R = LLVMBuildCall2(e->builder, F, V, arg_values, index, "call");
     free(arg_values);
-    return value(R);
+    return value(fdef->function->type, R);
 }
 
-node ether_op(ether e, OPType optype, object L, object R) {
-    node LV = value(operand(e, L));
-    node RV = value(operand(e, R));
-    if (!LV || !RV) {
-        error("Invalid operands in ether_add");
-        return NULL;
+node ether_literal(ether e, object n) {
+    AType ntype = isa(n);
+    if (ntype == typeid(bool)) return LLVMConstInt(LLVMInt1Type(), *(bool*)n, 0);
+    if (ntype == typeid(i8))  return LLVMConstInt( LLVMInt8Type(),  *( i8*)n, 0);
+    if (ntype == typeid(i16)) return LLVMConstInt(LLVMInt16Type(),  *(i16*)n, 0);
+    if (ntype == typeid(i32)) return LLVMConstInt(LLVMInt32Type(),  *(i32*)n, 0);
+    if (ntype == typeid(i64)) return LLVMConstInt(LLVMInt64Type(),  *(i64*)n, 0);
+    if (ntype == typeid(u8))  return LLVMConstInt( LLVMInt8Type(),  *( u8*)n, 0);
+    if (ntype == typeid(u16)) return LLVMConstInt(LLVMInt16Type(),  *(u16*)n, 0);
+    if (ntype == typeid(u32)) return LLVMConstInt(LLVMInt32Type(),  *(u32*)n, 0);
+    if (ntype == typeid(u64)) return LLVMConstInt(LLVMInt64Type(),  *(u64*)n, 0);
+    if (ntype == typeid(f32)) return LLVMConstInt(LLVMFloatType(),  *(f32*)n, 0);
+    if (ntype == typeid(f64)) return LLVMConstInt(LLVMDoubleType(), *(f64*)n, 0);
+    if (ntype == typeid(string)) return LLVMBuildGlobalStringPtr(e->builder, ((string)n)->chars, "str");
+    fault ("literal not handled: %s", ntype->name);
+}
+
+node ether_op(ether e, OPType optype, string N, object L, object R) {
+    node   LV  = operand(e, L);
+    node   RV  = operand(e, R);
+    //string N   = estr(OPType, optype);
+
+    /// check if N is a method on L
+    if (N && isa(L) == typeid(node) && is_class(((node)L)->type)) {
+        node Ln = L;
+        type Lt = get(Ln->type->members, N);
+        if  (Lt && Lt->mdl == model_function && len(Lt->function->args) == 1) {
+            /// convert argument and call method
+            type  arg_expects = Lt->function->args->elements[0];
+            node  conv = ether_convert(e, Ln, arg_expects);
+            array args = array_of(null, conv, null);
+            return ecall(fcall, Lt, L, args);
+        }
     }
-    //OPType op = eval(OPType, type->chars);
-    string N = estr(OPType, optype);
+
+    type rtype = determine_rtype(e, optype, LV->type, RV->type);
     LLVMValueRef RES;
+
+    LV = ether_convert(e, LV, rtype);
+    RV = ether_convert(e, RV, rtype);
+
+    // we must set this, and also do we need to chang our calls to different ones depending on if there is going to be integer size change?
+    // for each LV/RV there is a type to read, and that type has model of model_bool/u8/i64...f32/f64
     switch (optype) {
-    case OPType_add:    RES = LLVMBuildAdd  (e->builder, LV, RV, N); break;
-    case OPType_sub:    RES = LLVMBuildSub  (e->builder, LV, RV, N); break;
-    case OPType_mul:    RES = LLVMBuildMul  (e->builder, LV, RV, N); break;
-    case OPType_div:    RES = LLVMBuildSDiv (e->builder, LV, RV, N); break;
-    case OPType_or:     RES = LLVMBuildOr   (e->builder, LV, RV, N); break;
-    case OPType_and:    RES = LLVMBuildAnd  (e->builder, LV, RV, N); break;
-    case OPType_xor:    RES = LLVMBuildXor  (e->builder, LV, RV, N); break;
-    case OPType_right:  RES = LLVMBuildLShr (e->builder, LV, RV, N); break;
-    case OPType_left:   RES = LLVMBuildShl  (e->builder, LV, RV, N); break;
-    case OPType_assign: RES = LLVMBuildStore(e->builder, RV, LV);    break;
+    case OPType__add:    RES = LLVMBuildAdd  (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__sub:    RES = LLVMBuildSub  (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__mul:    RES = LLVMBuildMul  (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__div:    RES = LLVMBuildSDiv (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__or:     RES = LLVMBuildOr   (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__and:    RES = LLVMBuildAnd  (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__xor:    RES = LLVMBuildXor  (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__right:  RES = LLVMBuildLShr (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__left:   RES = LLVMBuildShl  (e->builder, LV->value, RV->value, cs(N)); break;
+    case OPType__assign: RES = LLVMBuildStore(e->builder, RV->value, LV->value);    break;
     default: {
         LLVMValueRef loaded = LLVMBuildLoad2(e->builder, LLVMTypeOf(LV), LV, "load");
         LLVMValueRef val;
         switch (optype) {
-            case OPType_assign_add:   val = LLVMBuildAdd (e->builder, loaded, RV, N); break;
-            case OPType_assign_sub:   val = LLVMBuildSub (e->builder, loaded, RV, N); break;
-            case OPType_assign_mul:   val = LLVMBuildMul (e->builder, loaded, RV, N); break;
-            case OPType_assign_div:   val = LLVMBuildSDiv(e->builder, loaded, RV, N); break;
-            case OPType_assign_or:    val = LLVMBuildOr  (e->builder, loaded, RV, N); break;
-            case OPType_assign_and:   val = LLVMBuildAnd (e->builder, loaded, RV, N); break;
-            case OPType_assign_xor:   val = LLVMBuildXor (e->builder, loaded, RV, N); break;
-            case OPType_assign_right: val = LLVMBuildLShr(e->builder, loaded, RV, N); break;
-            case OPType_assign_left:  val = LLVMBuildShl (e->builder, loaded, RV, N); break;
-            case OPType_mod_assign:   val = LLVMBuildSRem(e->builder, loaded, RV, N); break;
+            case OPType__assign_add:   val = LLVMBuildAdd (e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__assign_sub:   val = LLVMBuildSub (e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__assign_mul:   val = LLVMBuildMul (e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__assign_div:   val = LLVMBuildSDiv(e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__assign_or:    val = LLVMBuildOr  (e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__assign_and:   val = LLVMBuildAnd (e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__assign_xor:   val = LLVMBuildXor (e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__assign_right: val = LLVMBuildLShr(e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__assign_left:  val = LLVMBuildShl (e->builder, loaded, RV->value, cs(N)); break;
+            case OPType__mod_assign:   val = LLVMBuildSRem(e->builder, loaded, RV->value, cs(N)); break;
             default:
                 fault("unexpected operation type");
                 break;
@@ -760,23 +912,21 @@ node ether_op(ether e, OPType optype, object L, object R) {
         RES = LLVMBuildStore(e->builder, val, LV->value);
         break;
     }}
-    
-    return new(op,
-        optype,     optype,
-        left,       LV,
-        right,      RV,
+    return new(node,
+        mod,        e,
+        type,       rtype,
         value,      RES);
 }
 
-node ether_add(ether e, object L, object R) { return ether_op(e, OPType_add, L, R); }
-node ether_sub(ether e, object L, object R) { return ether_op(e, OPType_sub, L, R); }
-node ether_mul(ether e, object L, object R) { return ether_op(e, OPType_mul, L, R); }
-node ether_div(ether e, object L, object R) { return ether_op(e, OPType_div, L, R); }
+node ether_add(ether e, object L, object R) { return ether_op(e, OPType__add, str("add"), L, R); }
+node ether_sub(ether e, object L, object R) { return ether_op(e, OPType__sub, str("sub"), L, R); }
+node ether_mul(ether e, object L, object R) { return ether_op(e, OPType__mul, str("mul"), L, R); }
+node ether_div(ether e, object L, object R) { return ether_op(e, OPType__div, str("div"), L, R); }
 
 /// implement or import with this
 type ether_function(
         ether e,           cstr name, type target,
-        type  return_type, map  args, bool va_args, subprocedure builder)
+        type  return_type, array args, bool va_args, subprocedure builder)
 {
     LLVMTypeRef      rtype     = return_type->ref;
     int              n_args    = len(args);
@@ -787,8 +937,7 @@ type ether_function(
         arg_types[index++] = LLVMPointerType(target->ref, 0);
 
     print("function %s", name);
-    pairs(args, i) {
-        member arg = i->value;
+    each(args, member, arg) {
         arg_types[index++] = arg->type->ref;
         print("arg type [%i] = %s", index - 1,
             LLVMPrintTypeToString(arg->type->ref));
@@ -854,7 +1003,7 @@ void ether_builder_main(ether e, function fn, map ctx) {
 
     type   printf   = ecall(function,
         "printf", null,  rmem->type, map_of("template", template, null), true, null);
-    map    args     = map_of("template", str("something"), null);
+    array  args     = array_of(null, str("something"), null);
     node   n_printf = ecall(fcall,   printf, null, args);
     node   n_ret    = ecall(freturn, i(1));
 }
@@ -873,8 +1022,7 @@ void ether_build(ether e) {
 
                 /// we may start building now, that includes this debug information for the function args
                 int index = 0;
-                pairs(fn->args, i) { // index == 0 at start
-                    member arg_mem     = i->value;
+                each(fn->args, member, arg_mem) { // index == 0 at start
                     verify(fn->scope, "fn scope not set");
 
                     unsigned arg_count = LLVMCountParams(fn->value);
@@ -918,11 +1066,7 @@ void main() {
     member  argc  = create_member(e, "i32",    0, "argc");
     member  argv  = create_member(e, "symbol", 1, "argv");
     member  ret   = create_member(e, "i32",    0, ".return");
-    map     args  = map_of(
-        "argc", argc,
-        "argv", argv,
-        null
-    );
+    map     args  = array_of(null, argc, argv, null);
 
     /// create function named main
     type fdef = ecall(

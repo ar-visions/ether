@@ -84,9 +84,14 @@ declare_class(context)
 
 
 /// the base helps us require the two args we need for nodes
+/// we are also coupling type along inside node, and this must be set properly with value macro
+/// all node values must contain its ether def.
+/// otherwise we are performing hash lookups, which is more complex and slower, 
+/// with less data stored
 #define node_schema(X,Y)\
     i_prop    (X,Y, public,     token,                  name) \
     i_prop    (X,Y, public,     ether,                  mod) \
+    i_prop    (X,Y, required,   type,                   type) \
     i_prop    (X,Y, public,     LLVMValueRef,           value)
 #ifndef node_intern
 #define node_intern
@@ -124,7 +129,6 @@ declare_mod(type, node)
     i_prop(    X,Y, public,     bool,                   is_const) \
     i_prop(    X,Y, public,     bool,                   is_assigned) \
     i_prop(    X,Y, public,     bool,                   is_function) \
-    i_prop(    X,Y, required,   type,                   type) \
     i_prop(    X,Y, intern,     interface,              access) \
     i_prop(    X,Y, intern,     LLVMMetadataRef,        dbg) \
     i_override(X,Y, method,     init)
@@ -136,10 +140,10 @@ declare_mod(member, node)
 
 #define function_schema(X,Y) \
     i_prop(    X,Y, public,     bool,                   va_args) \
-    i_prop(    X,Y, public,     map,                    args) \
-    i_prop(    X,Y, public,     type,                   type) \
+    i_prop(    X,Y, public,     array,                  args) \
     i_prop(    X,Y, public,     type,                   target) \
     i_prop(    X,Y, public,     type,                   rtype) \
+    i_prop(    X,Y, public,     bool,                   is_cast) \
     i_prop(    X,Y, public,     subprocedure,           builder) \
     i_prop(    X,Y, intern,     LLVMScope,              scope) \
     i_prop(    X,Y, intern,     LLVMBasicBlockRef,      entry)
@@ -184,31 +188,40 @@ declare_mod(ret, node)
     i_prop    (X,Y, required,   string,                 name) \
     i_prop    (X,Y, public,     string,                 lang) \
     i_prop    (X,Y, public,     path,                   install) \
-    i_method  (X,Y, public,     type,       function,   cstr, type, type, map, bool, subprocedure) \
-    i_method  (X,Y, public,     node,       op,         OPType, object, object) \
+    i_method  (X,Y, public,     type,       function,   cstr, type, type, array, bool, subprocedure) \
+    i_method  (X,Y, public,     node,       op,         OPType, string, object, object) \
+    i_method  (X,Y, public,     node,       load,       member) \
+    i_method  (X,Y, public,     node,       basic_cast, node, type) \
+    i_method  (X,Y, public,     node,       convert,    node, type) \
+    i_method  (X,Y, public,     node,       get_ref,    node, type) \
+    i_method  (X,Y, public,     node,       bitwise_not, node) \
+    i_method  (X,Y, public,     node,       not,        node) \
     i_method  (X,Y, public,     node,       add,        object, object) \
     i_method  (X,Y, public,     node,       sub,        object, object) \
     i_method  (X,Y, public,     node,       mul,        object, object) \
     i_method  (X,Y, public,     node,       div,        object, object) \
-    i_method  (X,Y, public,     node,       assign_add, object, object) \
-    i_method  (X,Y, public,     node,       assign_sub, object, object) \
-    i_method  (X,Y, public,     node,       assign_mul, object, object) \
-    i_method  (X,Y, public,     node,       assign_div, object, object) \
+    i_method  (X,Y, public,     node,       assign_add, node,   object) \
+    i_method  (X,Y, public,     node,       assign_sub, node,   object) \
+    i_method  (X,Y, public,     node,       assign_mul, node,   object) \
+    i_method  (X,Y, public,     node,       assign_div, node,   object) \
     i_method  (X,Y, public,     node,       eq,         node, node) \
     i_method  (X,Y, public,     node,       not_eq,     node, node) \
-    i_method  (X,Y, public,     node,       fcall,      function, member, map) \
+    i_method  (X,Y, public,     node,       literal,    object) \
+    i_method  (X,Y, public,     node,       fcall,      type, node, array) \
     i_method  (X,Y, public,     node,       freturn,    object) \
     i_method  (X,Y, public,     member,     lookup,     string) \
     i_method  (X,Y, public,     context,    push) \
     i_method  (X,Y, public,     context,    pop) \
     i_method  (X,Y, public,     context,    top) \
     i_method  (X,Y, public,     none,       write) \
+    i_method  (X,Y, public,     type,       return_type) \
+    i_method  (X,Y, public,     type,       find_def, string) \
     i_prop    (X,Y, required,   path,                   source) \
     i_prop    (X,Y, intern,     path,                   current_include) \
     i_prop    (X,Y, intern,     function,               current_fn) \
     i_prop    (X,Y, intern,     context,                top) \
     i_prop    (X,Y, intern,     array,                  lex) \
-    i_prop    (X,Y, intern,     map,                    defs) \
+    i_prop    (X,Y, public,     map,                    defs) \
     i_prop    (X,Y, intern,     LLVMModuleRef,          module) \
     i_prop    (X,Y, intern,     LLVMContextRef,         module_ctx) \
     i_prop    (X,Y, intern,     LLVMBuilderRef,         builder) \
@@ -229,5 +242,17 @@ declare_class(ether)
 
 #define LLVMValueRef_schema(X,Y) raw_schema(X,Y)
 declare_primitive(LLVMValueRef, raw)
+
+bool is_bool     (type f);
+bool is_float    (type f);
+bool is_double   (type f);
+bool is_realistic(type f);
+bool is_integral (type f);
+bool is_signed   (type f);
+bool is_unsigned (type f);
+bool is_object   (type f);
+bool is_class    (type f);
+bool is_struct   (type f);
+bool is_ref      (type f);
 
 #endif
