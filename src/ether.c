@@ -37,77 +37,33 @@ static map operators;
 
 /// we should get a 'stride' for a given member
 model member_model(member f, bool allow_ref) {
-    member m = f;
-    while (m) {
-        if (!allow_ref && m->is_ref)
-            return null;
-        if (isa(m->origin) == typeid(model))
-            return m->origin;
-        AType o = isa(m->origin);
-        if(!o) break;
-        if (o == typeid(member))
-            m = m->origin;
-    }
-    return false;
+    return f->mdl;
 }
 
-bool is_bool     (member f) {
-    model mdl = member_model(f, false);
-    if   (mdl)
-        return !mdl->is_signed && !mdl->is_realistic && mdl->bits == 1;
-    return false;
-}
-
-bool is_float    (member f) {
-    model mdl = member_model(f, false);
-    if   (mdl) return mdl->is_realistic && mdl->bits == 32;
-    return false;
-}
-
-bool is_double   (member f) {
-    model mdl = member_model(f, false);
-    if   (mdl) return mdl->is_realistic && mdl->bits == 64;
-    return false;
-}
-
-bool is_realistic(member f) {
-    model mdl = member_model(f, false);
-    if   (mdl) return mdl->is_realistic;
-    return false;
-}
-
-bool is_integral (member f) {
-    model mdl = member_model(f, false);
-    if   (mdl) return mdl->is_signed || !mdl->is_realistic;
-    return false;
-}
-bool is_signed   (member f) {
-    model mdl = member_model(f, false);
-    if   (mdl) return mdl->is_signed;
-    return false;
-}
-
-/// write these functions and we'll have an idea of how to use member
-bool is_unsigned (member f) {
-    model mdl = member_model(f, false);
-    if   (mdl) return !mdl->is_realistic && !mdl->is_signed;
-    return false;
-}
+bool is_bool     (member f) { return isa(f->mdl->data) == typeid(bool); }
+bool is_float    (member f) { return isa(f->mdl->data) == typeid(f32);  }
+bool is_double   (member f) { return isa(f->mdl->data) == typeid(f64);  }
+bool is_realistic(member f) { return isa(f->mdl->data)->traits & A_TRAIT_REALISTIC; }
+bool is_integral (member f) { return isa(f->mdl->data)->traits & A_TRAIT_INTEGRAL;  }
+bool is_signed   (member f) { return isa(f->mdl->data)->traits & A_TRAIT_SIGNED;    }
+bool is_unsigned (member f) { return isa(f->mdl->data)->traits & A_TRAIT_UNSIGNED;  }
 
 bool is_object   (member f) {
-    return isa(f->origin) == typeid(structure) || 
-           isa(f->origin) == typeid(class);
+    return isa(f->mdl->data) == typeid(structure) || 
+           isa(f->mdl->data) == typeid(class);
 }
 
 bool is_class    (member f) {
-    return isa(f->origin) == typeid(class);
+    return isa(f->mdl->data) == typeid(class);
 }
 
 bool is_struct   (member f) {
-    return isa(f->origin) == typeid(structure);
+    return isa(f->mdl->data) == typeid(structure);
 }
 
-bool is_ref      (member f) { return f->is_ref; }
+bool is_ref      (member f) {
+    return isa(f->mdl->data) == typeid(model);
+}
 
 void init() {
     LLVMInitializeNativeTarget();
@@ -166,57 +122,56 @@ void model_init(model mdl) {
         mdl->name = new(token, chars, cs(n), source, e->source, line, 1);
     }
 
-    if (!mdl->is_realistic) {
-        AType type = isa(mdl->data);
+    AType type = isa(mdl->data);
 
-        if (type->traits & A_TRAIT_PRIMITIVE) {
-            mdl->is_signed    = type->name[0] == 'i';
-            mdl->is_realistic = type->name[0] == 'f';
-            if (mdl->is_realistic) {
-                if      (type == typeid(f32))
-                    mdl->ref = LLVMFloatType();
-                else if (type == typeid(f64))
-                    mdl->ref = LLVMDoubleType();
-                else fault("unsupported float: %s", type->name);
-            } else {
-                if      (type == typeid(none))
-                    mdl->ref = LLVMVoidType  ();
-                else if (type == typeid(bool))
-                    mdl->ref = LLVMInt1Type  ();
-                else if (type == typeid(i8)  || type == typeid(u8))
-                    mdl->ref = LLVMInt8Type();
-                else if (type == typeid(i16) || type == typeid(u16))
-                    mdl->ref = LLVMInt16Type();
-                else if (type == typeid(i32) || type == typeid(u32))
-                    mdl->ref = LLVMInt32Type();
-                else if (type == typeid(i64) || type == typeid(u64))
-                    mdl->ref = LLVMInt64Type();
-                else fault("unsupported primitive: %s", type->name); 
-            }
+    if (type->traits & A_TRAIT_PRIMITIVE) {
+        mdl->is_signed    = type->name[0] == 'i';
+        mdl->is_realistic = type->name[0] == 'f';
+        if (mdl->is_realistic) {
+            if      (type == typeid(f32))
+                mdl->type = LLVMFloatType();
+            else if (type == typeid(f64))
+                mdl->type = LLVMDoubleType();
+            else fault("unsupported float: %s", type->name);
         } else {
-            // can be a class, structure, function
-            if (type == typeid(model)) {
-                model  src = mdl->data;
-                /// this is a reference, so we create type and debug based on this
-                u64 ptr_sz = LLVMPointerSize(e->target_data);
-                mdl->type  = LLVMPointerType(src->type, 0);
-                if (mdl->name)
-                    mdl->debug = LLVMDIBuilderCreatePointerType(e->debug, src->type,
-                        ptr_sz * 8, 0, 0, cs(mdl->name), len(mdl->name));
-            }
-            else if (type == typeid(structure) || type == typeid(class)) {
-                /// create structure and its debug information
+            if      (type == typeid(none))
+                mdl->type = LLVMVoidType  ();
+            else if (type == typeid(bool))
+                mdl->type = LLVMInt1Type  ();
+            else if (type == typeid(i8)  || type == typeid(u8))
+                mdl->type = LLVMInt8Type();
+            else if (type == typeid(i16) || type == typeid(u16))
+                mdl->type = LLVMInt16Type();
+            else if (type == typeid(i32) || type == typeid(u32))
+                mdl->type = LLVMInt32Type();
+            else if (type == typeid(i64) || type == typeid(u64))
+                mdl->type = LLVMInt64Type();
+            else fault("unsupported primitive: %s", type->name); 
+        }
+    } else {
+        // we still need static array (use of integral shape), aliases
 
+        // can be a class, structure, function
+        if (type == typeid(model)) {
+            model  src = mdl->data;
+            /// this is a reference, so we create type and debug based on this
+            u64 ptr_sz = LLVMPointerSize(e->target_data);
+            mdl->type  = LLVMPointerType(src->type, 0);
+            if (mdl->name)
+                mdl->debug = LLVMDIBuilderCreatePointerType(e->debug, src->type,
+                    ptr_sz * 8, 0, 0, cs(mdl->name), len(mdl->name));
+        } else if (type == typeid(structure) || type == typeid(class)) {
+            record rec = mdl->data;
+            mdl->type  = rec->type;
+            mdl->debug = rec->debug;
+        } else if (type == typeid(function)) {
+            function fn = mdl->data;
+            mdl->type  = fn->type;
+            mdl->debug = fn->debug;
+        } else if (type == typeid(alias)) {
 
-                    
-
-            } else if (type == typeid(function)) {
-                
-
-
-            } else {
-                fault("unsupported model type: %s", type->name);
-            }
+        } else {
+            fault("unsupported model type: %s", type->name);
         }
     }
 }
