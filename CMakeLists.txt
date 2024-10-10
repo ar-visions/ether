@@ -1,9 +1,8 @@
 cmake_minimum_required    (VERSION 2.8.12)
 enable_language           (ASM)
 project                   (ether)
-set(is_exe                FALSE)
-include(../A/cmake)
-
+set                       (is_exe FALSE)
+include                   (../A/A.cmake)
 target_link_libraries     (ether 
     ${L}/libA.so
     ${L}/libLLVMCore.so
