@@ -15,7 +15,6 @@
 typedef struct ether*       ether;
 typedef struct model*       model;
 typedef struct member*      member;
-typedef struct context*     context;
 
 #ifndef LLVM_VERSION_MAJOR
 /// we may not have internal members in poly
@@ -69,11 +68,15 @@ declare_enum(reference)
     i_prop    (X,Y, public,     array,            shape) \
     i_prop    (X,Y, public,     sz,               size) \
     i_prop    (X,Y, public,     sz,               alignment) \
+    i_prop    (X,Y, public,     subprocedure,     completer) \
+    i_prop    (X,Y, public,     LLVMScope,        scope) \
+    i_prop    (X,Y, public,     model,            rtype) \
+    i_prop    (X,Y, public,     map,              members) \
     i_prop    (X,Y, required,   object,           data) \
     i_prop    (X,Y, public,     LLVMTypeRef,      type) \
     i_prop    (X,Y, public,     LLVMMetadataRef,  debug) \
     i_method  (X,Y, public,     model, alias,     string, reference, array) \
-    i_method  (X,Y, public,     bool, eq,         model) \
+    i_method  (X,Y, public,     i64, cmp,         model) \
     i_override(X,Y, method,     init)
 #ifndef model_intern
 #define model_intern
@@ -83,14 +86,11 @@ declare_class(model)
 
 #define function_schema(X,Y) \
     i_prop(X,Y, public,     bool,                   is_instance) \
-    i_prop(X,Y, public,     model,                  rtype) \
     i_prop(X,Y, public,     bool,                   va_args) \
     i_prop(X,Y, public,     array,                  args) \
     i_prop(X,Y, public,     model,                  record) \
     i_prop(X,Y, intern,     member,                 target) \
     i_prop(X,Y, public,     bool,                   is_cast) \
-    i_prop(X,Y, public,     subprocedure,           builder) \
-    i_prop(X,Y, intern,     LLVMScope,              scope) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
     i_prop(X,Y, intern,     LLVMValueRef,           value)
 #ifndef function_intern
@@ -102,18 +102,15 @@ declare_mod(function, model)
 // for each field, f_* name-bound class, enum or primitive
 #define record_schema(X,Y) \
     i_prop(X,Y, public,   record,       parent) \
-    i_prop(X,Y, public,   context,      ctx)
+    i_method(X,Y, public, none, a_record_fn) \
+    i_override(X,Y, method, init)
 #ifndef record_intern
 #define record_intern
 #endif
 declare_mod(record, model)
 
 
-#define structure_schema(X,Y)
-#ifndef structure_intern
-#define structure_intern
-#endif
-declare_mod(structure, record, model)
+
 
 
 #define class_schema(X,Y)
@@ -122,16 +119,11 @@ declare_mod(structure, record, model)
 #endif
 declare_mod(class, record, model)
 
-#define context_schema(X,Y)\
-    i_prop    (X,Y, intern,     LLVMScope,              scope) \
-    i_prop    (X,Y, public,     member,                 rtype) \
-    i_prop    (X,Y, public,     object,                 container) \
-    i_prop    (X,Y, public,     map,                    members) \
-    i_override(X,Y, method,     init)
-#ifndef context_intern
-#define context_intern
+#define structure_schema(X,Y)
+#ifndef structure_intern
+#define structure_intern
 #endif
-declare_class(context)
+declare_mod(structure, record, model)
 
 
 /// the base helps us require the two args we need for nodes
@@ -197,7 +189,7 @@ declare_mod(ret, node)
 /// ether must be capable of multiple returns in abstract
 /// this is something i believe we require of silver for 0.88 spec
 #define ether_schema(X,Y)\
-    i_prop    (X,Y, required,   string,                 name) \
+    i_prop    (X,Y, required,   path,                   source) \
     i_prop    (X,Y, public,     string,                 lang) \
     i_prop    (X,Y, public,     path,                   install) \
     i_method  (X,Y, public,     none,       push_member, member) \
@@ -232,15 +224,14 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     node,       is,         node, object) \
     i_method  (X,Y, public,     node,       inherits,   node, object) \
     i_method  (X,Y, public,     member,     lookup,     string) \
-    i_method  (X,Y, public,     context,    push,       object) \
-    i_method  (X,Y, public,     context,    pop) \
-    i_method  (X,Y, public,     context,    top) \
+    i_method  (X,Y, public,     model,      push,       model) \
+    i_method  (X,Y, public,     model,      pop) \
+    i_method  (X,Y, public,     model,      top) \
     i_method  (X,Y, public,     none,       write) \
     i_method  (X,Y, public,     model,      return_type) \
-    i_prop    (X,Y, required,   path,                   source) \
     i_prop    (X,Y, intern,     path,                   current_include) \
     i_prop    (X,Y, intern,     function,               current_fn) \
-    i_prop    (X,Y, public,     context,                top) \
+    i_prop    (X,Y, public,     model,                  top) \
     i_prop    (X,Y, intern,     array,                  lex) \
     i_prop    (X,Y, public,     map,                    base) \
     i_prop    (X,Y, intern,     LLVMModuleRef,          module) \
@@ -248,8 +239,7 @@ declare_mod(ret, node)
     i_prop    (X,Y, intern,     LLVMBuilderRef,         builder) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        file) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        compile_unit) \
-    i_prop    (X,Y, intern,     LLVMDIBuilderRef,       debug) \
-    i_prop    (X,Y, intern,     LLVMScope,              scope) \
+    i_prop    (X,Y, intern,     LLVMDIBuilderRef,       dbg_builder) \
     i_prop    (X,Y, intern,     LLVMTargetRef,          target) \
     i_prop    (X,Y, intern,     LLVMTargetDataRef,      target_data) \
     i_prop    (X,Y, intern,     LLVMTargetMachineRef,   target_machine) \
@@ -259,7 +249,9 @@ declare_mod(ret, node)
 #ifndef ether_intern
 #define ether_intern
 #endif
-declare_class(ether)
+declare_mod(ether, model)
+
+
 
 #define LLVMValueRef_schema(X,Y) raw_schema(X,Y)
 declare_primitive(LLVMValueRef, raw)
@@ -269,6 +261,9 @@ declare_primitive(LLVMMetadataRef, raw)
 
 #define LLVMTypeRef_schema(X,Y) raw_schema(X,Y)
 declare_primitive(LLVMTypeRef, raw)
+
+#define LLVMScope_schema(X,Y) raw_schema(X,Y)
+declare_primitive(LLVMScope, raw)
 
 bool is_bool     (member);
 bool is_float    (member);
