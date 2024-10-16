@@ -38,42 +38,43 @@ typedef LLVMMetadataRef LLVMScope;
 
 member ether_lookup(ether e, string name);
 
+void ether_push_model(ether e, model mdl) {
+    member mem = emember(mdl, mdl->name->chars);
+    mem->is_type = true;
+    //set(e->top->members, str(mdl->name->chars), mem);
+}
+
 void ether_push_member(ether e, member mem) {
-    set(e->top->members, mem->name, mem);
+    set(e->top->members, str(mem->name->chars), mem);
 }
 
 #define no_target null
 
 static map operators;
 
-/// we should get a 'stride' for a given member
-model member_model(member f, bool allow_ref) {
-    return f->mdl;
-}
-
-bool is_bool     (member f) { return isa(f->mdl->data) == typeid(bool); }
-bool is_float    (member f) { return isa(f->mdl->data) == typeid(f32);  }
-bool is_double   (member f) { return isa(f->mdl->data) == typeid(f64);  }
-bool is_realistic(member f) { return isa(f->mdl->data)->traits & A_TRAIT_REALISTIC; }
-bool is_integral (member f) { return isa(f->mdl->data)->traits & A_TRAIT_INTEGRAL;  }
-bool is_signed   (member f) { return isa(f->mdl->data)->traits & A_TRAIT_SIGNED;    }
-bool is_unsigned (member f) { return isa(f->mdl->data)->traits & A_TRAIT_UNSIGNED;  }
+bool is_bool     (member f) { return f->mdl->src && isa(f->mdl->src) == typeid(bool); }
+bool is_float    (member f) { return f->mdl->src && isa(f->mdl->src) == typeid(f32);  }
+bool is_double   (member f) { return f->mdl->src && isa(f->mdl->src) == typeid(f64);  }
+bool is_realistic(member f) { return f->mdl->src && isa(f->mdl->src)->traits & A_TRAIT_REALISTIC; }
+bool is_integral (member f) { return f->mdl->src && isa(f->mdl->src)->traits & A_TRAIT_INTEGRAL;  }
+bool is_signed   (member f) { return f->mdl->src && isa(f->mdl->src)->traits & A_TRAIT_SIGNED;    }
+bool is_unsigned (member f) { return f->mdl->src && isa(f->mdl->src)->traits & A_TRAIT_UNSIGNED;  }
 
 bool is_object   (member f) {
-    return isa(f->mdl->data) == typeid(structure) || 
-           isa(f->mdl->data) == typeid(class);
+    return isa(f->mdl) == typeid(structure) || 
+           isa(f->mdl) == typeid(class);
 }
 
 bool is_class    (member f) {
-    return isa(f->mdl->data) == typeid(class);
+    return isa(f->mdl) == typeid(class);
 }
 
 bool is_struct   (member f) {
-    return isa(f->mdl->data) == typeid(structure);
+    return isa(f->mdl) == typeid(structure);
 }
 
 bool is_ref      (member f) {
-    return isa(f->mdl->data) == typeid(model);
+    return isa(f->mdl) == typeid(model);
 }
 
 void init() {
@@ -131,12 +132,22 @@ void model_init(model mdl) {
 
     mdl->members = new(map, hsize, 32);
 
-    if (!mdl->data) {
-        verify (!e, "only ether model does not have 'data'");
+    if (!mdl->src) {
+        //verify (!e, "only ether model does not have 'src'");
         return;
     }
 
-    AType type = isa(mdl->data);
+    /// narrow down type traits
+    model mdl_src = mdl->src;
+    if (isa(mdl_src) == typeid(model)) {
+        while (isa(mdl_src) == typeid(model) && mdl_src->src) {
+            if (mdl_src->ref)
+                break;
+            mdl_src = mdl_src->src;
+        }
+    }
+
+    AType type = isa(mdl_src);
 
     if (type->traits & A_TRAIT_PRIMITIVE) {
         if      (type == typeid(f32))
@@ -157,13 +168,21 @@ void model_init(model mdl) {
             mdl->type = LLVMInt64Type();
         else
             fault("unsupported primitive: %s", type->name);
+
+        mdl->debug = LLVMDIBuilderCreateBasicType(
+            e->dbg_builder,                // Debug info builder
+            type->name,                    // Name of the primitive type (e.g., "int32", "float64")
+            strlen(type->name),            // Length of the name
+            LLVMABISizeOfType(e->target_data, mdl->type) * 8, // Size in bits (e.g., 32 for int, 64 for double)
+            type->name[0] == 'f' ? 0x04 : 0x05, // switching based on f float or u/i int (on primitives)
+            0);
     } else {
         // we still need static array (use of integral shape), aliases
 
         // can be a class, structure, function
         if (type == typeid(model)) {
             /// now we should handle the case 
-            model  src = mdl->data;
+            model  src = mdl->src;
             /// this is a reference, so we create type and debug based on this
             u64 ptr_sz = LLVMPointerSize(e->target_data);
             mdl->type  = LLVMPointerType(src->type, 0);
@@ -171,11 +190,11 @@ void model_init(model mdl) {
                 mdl->debug = LLVMDIBuilderCreatePointerType(e->dbg_builder, src->debug,
                     ptr_sz * 8, 0, 0, cs(mdl->name), len(mdl->name));
         } else if (type == typeid(structure) || type == typeid(class)) {
-            record rec = mdl->data;
+            record rec = mdl;
             mdl->type  = rec->type;
             mdl->debug = rec->debug;
         } else if (type == typeid(function)) {
-            function fn = mdl->data;
+            function fn = mdl;
             mdl->type  = fn->type;
             mdl->debug = fn->debug;
         } else if (type == typeid(ether))
@@ -198,8 +217,8 @@ void function_init(function fn) {
     int              index     = 0;
 
     if (fn->record) {
-        verify (isa(fn->record->data) == typeid(structure) || 
-                isa(fn->record->data) == typeid(class),
+        verify (isa(fn->record) == typeid(structure) || 
+                isa(fn->record) == typeid(class),
             "target [incoming] must be record type (struct / class) -- it is then made pointer-to record");
         model target_type = !fn->is_instance ? fn->record : model_alias(fn->record, fn->name, reference_pointer, null);
         fn->target = emember(target_type, fn->name->chars);
@@ -242,7 +261,7 @@ void function_init(function fn) {
         cs(fn->name), len(fn->name),
         cs(fn->name), len(fn->name),
         e->file,                // File
-        1,                      // Line number
+        e->name->line,          // Line number
         subroutine,             // Function type
         1,                      // Is local to unit
         1,                      // Is definition
@@ -255,6 +274,16 @@ void function_init(function fn) {
     LLVMSetSubprogram(fn->value, fn->scope);
     fn->entry = LLVMAppendBasicBlockInContext(
         e->module_ctx, fn->value, "entry");
+
+    LLVMPositionBuilderAtEnd(e->builder, fn->entry);
+    // may need to push/pop the fn temporarily
+    
+    if (LLVMGetBasicBlockTerminator(fn->entry) == NULL) {
+        // Set the debug location manually
+        LLVMMetadataRef loc = LLVMDIBuilderCreateDebugLocation(
+            e->module_ctx, fn->name->line, 0, fn->scope, NULL);
+        LLVMSetCurrentDebugLocation2(e->builder, loc);
+    }
 
     /// create debug info for arguments (including target)
     index = 0;
@@ -298,9 +327,9 @@ void function_init(function fn) {
             0                  // Flags (typically 0)
         );
         LLVMValueRef param_value = LLVMGetParam(fn->value, index);
-        LLVMValueRef decl        = LLVMDIBuilderInsertDeclareBefore(
+        LLVMValueRef decl        = LLVMDIBuilderInsertDeclareAtEnd(
             e->dbg_builder,                   // The LLVM builder
-            param_value,                // The LLVMValueRef for the first parameter
+            param_value,                
             param_meta,                 // The debug metadata for the first parameter
             LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
             LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
@@ -309,12 +338,8 @@ void function_init(function fn) {
 
 }
 
-void record_init(record rec) {
+void record_completer(record rec) {
     ether e = rec->mod;
-
-    rec->type = LLVMStructCreateNamed(LLVMGetGlobalContext(), rec->name->chars);
-
-    /// rec has ctx -> members (map of str -> member) we iterate with 
     int total = 0;
     record r = rec;
     array a = new(array, alloc, 32);
@@ -353,8 +378,11 @@ void record_init(record rec) {
     }
 
     LLVMStructSetBody(rec->type, member_types, index, 0);
-    int sz = LLVMABISizeOfType     (rec->mod->target_data, rec->type);
-    int al = LLVMABIAlignmentOfType(rec->mod->target_data, rec->type);
+    ether_ft etest1 = &ether_type;
+    int offset1 = offsetof(struct ether, target_data);
+    LLVMTargetDataRef target_data = rec->mod->target_data;
+    int sz = LLVMABISizeOfType     (target_data, rec->type);
+    int al = LLVMABIAlignmentOfType(target_data, rec->type);
 
     // mdl is required on member
     rec->debug = LLVMDIBuilderCreateStructType(
@@ -374,16 +402,17 @@ void record_init(record rec) {
         NULL, 0);
 }
 
-void member_init(member mem) {
+
+void record_init(record rec) {
+    ether e = rec->mod;
+    rec->type = LLVMStructCreateNamed(LLVMGetGlobalContext(), rec->name->chars);
+    verify(!rec->completer, "completer internally set");
+    rec->completer = subproc(rec, record_completer, null);
+}
+
+void member_set_debug(member mem) {
     ether e   = mem->mod;
     model top = e->top;
-
-    if (inherits(mem->name, string)) {
-        string n = mem->name;
-        mem->name = new(token, chars, cs(n), source, e->source, line, 1);
-    }
-
-    verify (mem->mdl->debug, "no debug info on type");
     AType type_ctx = isa(top);
 
     /// if we are creating a new member inside of a function, we need
@@ -423,11 +452,28 @@ void member_init(member mem) {
             LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
             fn->entry);
     }
+}
+
+void member_init(member mem) {
+    ether e   = mem->mod;
+    model top = e->top;
+
+    if (inherits(mem->name, string)) {
+        string n = mem->name;
+        mem->name = new(token, chars, cs(n), source, e->source, line, 1);
+    }
 
     /// members are stored in context
     string n = str(mem->name->chars);
-    verify (!contains(top->members, n), "duplicate member definition");
-    set(top->members, n, mem);
+    if (!instanceof(top, non_registered)) {
+        verify (!contains(top->members, n), "duplicate member definition");
+        set(top->members, n, mem);
+    }
+
+    if (!mem->mdl->debug)
+        return;
+    
+    member_set_debug(mem);
 }
 
 void op_init(op op) {
@@ -443,6 +489,7 @@ void ret_init(ret op) {
 
 
 static node operand(ether e, object op) {
+    if (!op) return value(emodel("void"), null);
 
          if (inherits(op,   node)) return op;
     else if (inherits(op,     u8)) return value(emodel("u8"),  LLVMConstInt (emodel( "u8")->type, *( u8*)op, 0));
@@ -472,8 +519,55 @@ model model_alias(model src, string name, reference r, array shape) {
         name,   name,
         shape,  shape,
         ref,    r,
-        data,   src);
+        src,   src);
     return ref;
+}
+
+node ether_if_else(ether e, array conds, array exprs,
+        subprocedure cond_builder, subprocedure expr_builder) {
+    verify(len(conds) == len(exprs) - 1 || 
+           len(conds) == len(exprs), "mismatch between conditions and expressions");
+    
+    LLVMBasicBlockRef block = LLVMGetInsertBlock(e->builder);
+    LLVMBasicBlockRef merge = LLVMAppendBasicBlock(block, "ifcont");  // Merge block for the end of if-else chain
+
+    // Iterate over the conditions and expressions
+    for (int i = 0; i < len(conds); i++) {
+        // Create the blocks for "then" and "else"
+        LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(block, "then");
+        LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(block, "else");
+
+        // Build the condition
+        object cond_obj = conds->elements[i];
+        node cond_result = invoke(cond_builder, cond_obj);  // Silver handles the actual condition parsing and building
+        LLVMValueRef condition = ether_convert(e, cond_result, emodel("bool"))->value;
+
+        // Set the conditional branch
+        LLVMBuildCondBr(e->builder, condition, then_block, else_block);
+
+        // Build the "then" block
+        LLVMPositionBuilderAtEnd(e->builder, then_block);
+        object expr_obj = exprs->elements[i];
+        node expressions = invoke(expr_builder, expr_obj);  // Silver handles the actual block/statement generation
+        LLVMBuildBr(e->builder, merge);
+
+        // Move the builder to the "else" block
+        LLVMPositionBuilderAtEnd(e->builder, else_block);
+        block = else_block;
+    }
+
+    // Handle the final "else" (if applicable)
+    if (len(exprs) > len(conds)) {
+        object else_expr = exprs->elements[len(conds)];
+        invoke(expr_builder, else_expr);  // Process the final else block
+        LLVMBuildBr(e->builder, merge);
+    }
+
+    // Move the builder to the merge block
+    LLVMPositionBuilderAtEnd(e->builder, merge);
+
+    // Return some node or result if necessary (e.g., a node indicating the overall structure)
+    return new(node, mod, e, mdl, emodel("void"), value, null);  // Dummy node, replace with real node if needed
 }
 
 node ether_addr_of(ether e, node expr, model mdl) {
@@ -567,6 +661,15 @@ node ether_convert(ether e, node expr, model rtype) {
     return value(T,V);
 }
 
+model ether_context_model(ether e, AType type) {
+    for (int i = len(e->lex) - 1; i >= 0; i--) {
+        model ctx = e->lex->elements[i];
+        if (isa(ctx) == type)
+            return ctx;
+    }
+    return null;
+}
+
 model ether_return_type(ether e) {
     for (int i = len(e->lex) - 1; i >= 0; i--) {
         model ctx = e->lex->elements[i];
@@ -616,9 +719,10 @@ model ether_base_model(ether e, symbol name, AType native) {
     void* result[8];
     A prim = A_primitive(native, result); /// make a mock instance out of the type
     model mdl = new(model,
-        mod, e, name, str(name), data, prim);
+        mod, e, name, str(name), src, prim);
     verify (!contains(e->base, str(name)), "duplicate definition");
     set(e->base, str(name), mdl);
+    ether_push_model(e, mdl);
     return mdl;
 }
 
@@ -638,22 +742,31 @@ void ether_define_primitive(ether e) {
     
     model _cstr = model_alias(i8, str("cstr"), reference_pointer, null);
     set(e->base, str("cstr"), _cstr);
+    ether_push_model(e, _cstr);
 
     model symbol = model_alias(i8, str("symbol"), reference_constant, null);
     set(e->base, str("symbol"), symbol);
+    ether_push_model(e, symbol);
 
     model _char = model_alias(i32, str("char"), 0, null);
     set(e->base, str("char"), _char);
+    ether_push_model(e, _char);
 
     model _int  = model_alias(i64, str("int"), 0, null);
     set(e->base, str("int"), _int);
+    ether_push_model(e, _int);
+
+    print("int = %s", LLVMPrintTypeToString(_int->type));
 
     model _uint = model_alias(u64, str("uint"), 0, null);
     set(e->base, str("uint"), _uint);
+    ether_push_model(e, _uint);
 }
 
 /// look up a member in lexical scope
+/// this applies to models too, because they have membership as a type entry
 member ether_lookup(ether e, string name) {
+    verify(instanceof(name, string), "name is not string");
     for (int i = len(e->lex) - 1; i >= 0; i--) {
         model ctx = e->lex->elements[i];
         member  m = get(ctx->members, name);
@@ -664,14 +777,11 @@ member ether_lookup(ether e, string name) {
 }
 
 model ether_push(ether e, model mdl_ctx) {
-    if (!mdl_ctx)
-        mdl_ctx = new(model, mod, e, name, e->name, data, e);
-    verify(!mdl_ctx->scope || mdl_ctx->scope || mdl_ctx == e,
-        "scope already set for model %o", mdl_ctx->name);
-    if (mdl_ctx && !mdl_ctx->scope)
+    verify(mdl_ctx, "no context given");
+    if (mdl_ctx && !instanceof(mdl_ctx, non_registered) && !mdl_ctx->scope) {
         mdl_ctx->scope = e->top ? LLVMDIBuilderCreateLexicalBlock(
-                e->dbg_builder, e->top->scope, e->file, 1, 0) : e->scope;
-
+            e->dbg_builder, e->top->scope, e->file, 1, 0) : e->scope;
+    }
     push(e->lex, mdl_ctx);
     e->top = mdl_ctx;
     return mdl_ctx;
@@ -686,6 +796,8 @@ model ether_pop(ether e) {
         e->top = null;
     return e->top;
 }
+
+
 
 
 /// return a map of defs found by their name (we can isolate the namespace this way by having separate maps)
@@ -798,7 +910,7 @@ void ether_llvm_init(ether e) {
 void ether_init(ether e) {
     ether_llvm_init(e);
     e->lex = new(array, alloc, 32);
-    push(e, null);
+    push(e, e);
     ether_define_primitive(e);
 }
 
@@ -942,7 +1054,10 @@ node ether_not_eq(ether e, node L, node R) {
 }
 
 node ether_freturn(ether e, object o) {
-    function fn = e->current_fn;
+    function fn = ether_context_model(e, typeid(function));
+    verify (fn, "function not found in context");
+    /// this needs to go through the actual stack
+
     /// fn->rtype->ref is the LLVMTypeRef for this function
     /// if 'operand' doesnt equal teh same type, lets convert it
     node conv = ether_convert(e, operand(e, o), fn->rtype);
@@ -950,11 +1065,11 @@ node ether_freturn(ether e, object o) {
 }
 
 node ether_fcall(ether e, member fn_mem, node target, array args) {
-    verify(isa(fn_mem->mdl->data) == typeid(function), "model provided is not function");
+    verify(isa(fn_mem->mdl) == typeid(function), "model provided is not function");
     int n_args = len(args);
     LLVMValueRef* arg_values = calloc((target != null) + n_args, sizeof(LLVMValueRef));
     //verify (LLVMTypeOf(fdef->function->value) == fdef->ref, "integrity check failure");
-    function fn = fn_mem->mdl->data;
+    function fn = fn_mem->mdl;
     
     LLVMTypeRef  F = fn->type;
     LLVMValueRef V = fn->value; // todo: args in ether should be a map.  that way we can do a bit more
@@ -996,18 +1111,20 @@ node ether_op(ether e, OPType optype, string N, object L, object R) {
     node   RV  = operand(e, R);
     //string N   = estr(OPType, optype);
 
+    verify(!N || instanceof(N, string), "N is not string");
+
     /// check if N is a method on L
     if (N && isa(L) == typeid(node) && is_class(((node)L)->mdl))
     {
         node Ln = L;
-        AType type = isa(Ln->mdl->data);
+        AType type = isa(Ln->mdl);
         if (type == typeid(structure) || type == typeid(record))
         {
-            record rec = Ln->mdl->data;
+            record rec = Ln->mdl;
             member Lt = get(rec->members, N);
-            if  (Lt && isa(Lt->mdl->data) == typeid(function))
+            if  (Lt && isa(Lt->mdl) == typeid(function))
             {
-                function fn = Lt->mdl->data;
+                function fn = Lt->mdl;
                 if (len(fn->args) == 1) {
                     /// convert argument and call method
                     model  arg_expects = fn->args->elements[0];
@@ -1129,7 +1246,7 @@ member ether_function(
         name,    name,      record,  record, is_instance, is_instance,
         rtype,   rtype,     args,    args,
         va_args, va_args,   completer, completer);
-    model  mdl = new(model,    mod, e, name, name, data, fn);
+    model  mdl = new(model,    mod, e, name, name, src, fn);
     member mem = emember(mdl, name->chars);
     /// function should not set 'is-type'
     ether_push_member(e, mem);
@@ -1147,17 +1264,26 @@ void ether_builder_main(ether e, function fn, map ctx) {
 }
 
 void ether_build(ether e) {
+    /// define structs and classes before we write our functions (which reference the members)
     pairs(e->base, i) {
         model f = i->value;
-        if (isa(f->data) == typeid(function)) {
-            function fn = f->data;
+        if (isa(f) == typeid(record)) {
+            record rec = f;
+            if (rec->completer) {
+                model ctx = push(e, rec);
+                invoke(rec->completer, rec);
+                pop(e);
+            }
+        }
+    }
+    pairs(e->base, i) {
+        model f = i->value;
+        if (isa(f) == typeid(function)) {
+            function fn = f;
             if (fn->completer) {
-                e->current_fn = fn;
                 LLVMPositionBuilderAtEnd(e->builder, fn->entry);
                 model ctx = push(e, fn);
-                ctx->rtype = fn->rtype;
                 invoke(fn->completer, f);
-                e->current_fn = null;
                 pop(e);
             }
         }
@@ -1239,6 +1365,11 @@ void token_init(token a) {
 define_enum      (interface)
 define_enum      (reference)
 define_class     (model)
+
+// we need a place to tag as deferred registration
+// we parse args before we have the identity of the function type
+define_mod       (non_registered,  model)
+
 define_mod       (function,  model)
 define_mod       (record,    model)
 define_mod       (structure, record)
@@ -1251,8 +1382,3 @@ define_class(node)
 
 define_mod(op,       node)
 define_mod(member,   node)
-
-define_primitive(LLVMMetadataRef, raw, 0)
-define_primitive(LLVMValueRef, raw, 0)
-define_primitive(LLVMTypeRef, raw, 0)
-define_primitive(LLVMScope, raw, 0)

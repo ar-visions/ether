@@ -16,14 +16,6 @@ typedef struct ether*       ether;
 typedef struct model*       model;
 typedef struct member*      member;
 
-#ifndef LLVM_VERSION_MAJOR
-/// we may not have internal members in poly
-typedef void* LLVMMetadataRef;
-typedef void* LLVMValueRef;
-typedef void* LLVMTypeRef;
-typedef void* LLVMScope;
-#endif
-
 #define token_schema(X,Y) \
     i_prop      (X,Y,  required, cstr,      chars) \
     i_prop      (X,Y,  public,  sz,         len) \
@@ -63,46 +55,53 @@ declare_enum(reference)
 
 #define model_schema(X,Y)\
     i_prop    (X,Y, required,   ether,            mod) \
-    i_prop    (X,Y, required,   token,            name) \
+    i_prop    (X,Y, public,     token,            name) \
+    i_prop    (X,Y, required,   object,           src) \
     i_prop    (X,Y, public,     reference,        ref) \
     i_prop    (X,Y, public,     array,            shape) \
     i_prop    (X,Y, public,     sz,               size) \
     i_prop    (X,Y, public,     sz,               alignment) \
     i_prop    (X,Y, public,     subprocedure,     completer) \
-    i_prop    (X,Y, public,     LLVMScope,        scope) \
     i_prop    (X,Y, public,     model,            rtype) \
     i_prop    (X,Y, public,     map,              members) \
-    i_prop    (X,Y, required,   object,           data) \
-    i_prop    (X,Y, public,     LLVMTypeRef,      type) \
-    i_prop    (X,Y, public,     LLVMMetadataRef,  debug) \
+    i_prop    (X,Y, intern,     LLVMScope,        scope) \
+    i_prop    (X,Y, intern,     LLVMTypeRef,      type) \
+    i_prop    (X,Y, intern,     LLVMMetadataRef,  debug) \
     i_method  (X,Y, public,     model, alias,     string, reference, array) \
     i_method  (X,Y, public,     i64, cmp,         model) \
     i_override(X,Y, method,     init)
 #ifndef model_intern
-#define model_intern
+#define model_intern isize(model)
 #endif
 declare_class(model)
 
 
 #define function_schema(X,Y) \
     i_prop(X,Y, public,     bool,                   is_instance) \
+    i_prop(X,Y, public,     bool,                   is_cast) \
     i_prop(X,Y, public,     bool,                   va_args) \
     i_prop(X,Y, public,     array,                  args) \
     i_prop(X,Y, public,     model,                  record) \
-    i_prop(X,Y, intern,     member,                 target) \
-    i_prop(X,Y, public,     bool,                   is_cast) \
+    i_prop(X,Y, public,     member,                 target) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
-    i_prop(X,Y, intern,     LLVMValueRef,           value)
+    i_prop(X,Y, intern,     LLVMValueRef,           value) \
+    i_override(X,Y, method, init)
 #ifndef function_intern
-#define function_intern
+#define function_intern isize(function)
 #endif
 declare_mod(function, model)
 
 
+
+#define non_registered_schema(X,Y)
+#ifndef non_registered_intern
+#define non_registered_intern isize(non_registered)
+#endif
+declare_mod(non_registered, model)
+
 // for each field, f_* name-bound class, enum or primitive
 #define record_schema(X,Y) \
     i_prop(X,Y, public,   record,       parent) \
-    i_method(X,Y, public, none, a_record_fn) \
     i_override(X,Y, method, init)
 #ifndef record_intern
 #define record_intern
@@ -135,9 +134,11 @@ declare_mod(structure, record, model)
     i_prop    (X,Y, public,     token,                  name) \
     i_prop    (X,Y, public,     ether,                  mod) \
     i_prop    (X,Y, required,   model,                  mdl) \
-    i_prop    (X,Y, public,     LLVMValueRef,           value)
+    i_prop    (X,Y, public,     num,                    line) \
+    i_prop    (X,Y, public,     num,                    column) \
+    i_prop    (X,Y, intern,     LLVMValueRef,           value)
 #ifndef node_intern
-#define node_intern
+#define node_intern isize(node)
 #endif
 declare_class(node)
 
@@ -148,11 +149,10 @@ declare_class(node)
     i_prop    (X,Y, public,     bool,                   is_const) \
     i_prop    (X,Y, public,     bool,                   is_assigned) \
     i_prop    (X,Y, public,     bool,                   is_type) \
-    i_prop    (X,Y, public,     num,                    line) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
     i_override(X,Y, method,     init)
 #ifndef member_intern
-#define member_intern
+#define member_intern isize(member)
 #endif
 declare_mod(member, node)
 
@@ -196,6 +196,7 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     member,     function,   token, model, bool, model, array, bool, subprocedure) \
     i_method  (X,Y, public,     node,       op,         OPType, string, object, object) \
     i_method  (X,Y, public,     node,       load,       node, model, object) \
+    i_method  (X,Y, public,     node,       if_else,    array, array, subprocedure, subprocedure) \
     i_method  (X,Y, public,     node,       convert,    node, model) \
     i_method  (X,Y, public,     node,       addr_of,    node, model) \
     i_method  (X,Y, public,     node,       bitwise_not, node) \
@@ -229,11 +230,13 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     model,      top) \
     i_method  (X,Y, public,     none,       write) \
     i_method  (X,Y, public,     model,      return_type) \
+    i_method  (X,Y, public,     model,      context_model, AType) \
     i_prop    (X,Y, intern,     path,                   current_include) \
     i_prop    (X,Y, intern,     function,               current_fn) \
     i_prop    (X,Y, public,     model,                  top) \
     i_prop    (X,Y, intern,     array,                  lex) \
     i_prop    (X,Y, public,     map,                    base) \
+    i_prop    (X,Y, intern,     LLVMBasicBlockRef,      current_if_block) \
     i_prop    (X,Y, intern,     LLVMModuleRef,          module) \
     i_prop    (X,Y, intern,     LLVMContextRef,         module_ctx) \
     i_prop    (X,Y, intern,     LLVMBuilderRef,         builder) \
@@ -247,23 +250,9 @@ declare_mod(ret, node)
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
 #ifndef ether_intern
-#define ether_intern
+#define ether_intern isize(ether)
 #endif
 declare_mod(ether, model)
-
-
-
-#define LLVMValueRef_schema(X,Y) raw_schema(X,Y)
-declare_primitive(LLVMValueRef, raw)
-
-#define LLVMMetadataRef_schema(X,Y) raw_schema(X,Y)
-declare_primitive(LLVMMetadataRef, raw)
-
-#define LLVMTypeRef_schema(X,Y) raw_schema(X,Y)
-declare_primitive(LLVMTypeRef, raw)
-
-#define LLVMScope_schema(X,Y) raw_schema(X,Y)
-declare_primitive(LLVMScope, raw)
 
 bool is_bool     (member);
 bool is_float    (member);
