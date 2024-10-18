@@ -56,7 +56,7 @@ declare_enum(reference)
 #define model_schema(X,Y)\
     i_prop    (X,Y, required,   ether,            mod) \
     i_prop    (X,Y, public,     token,            name) \
-    i_prop    (X,Y, required,   object,           src) \
+    i_prop    (X,Y, required,   model,            src) \
     i_prop    (X,Y, public,     reference,        ref) \
     i_prop    (X,Y, public,     array,            shape) \
     i_prop    (X,Y, public,     sz,               size) \
@@ -64,11 +64,13 @@ declare_enum(reference)
     i_prop    (X,Y, public,     subprocedure,     completer) \
     i_prop    (X,Y, public,     model,            rtype) \
     i_prop    (X,Y, public,     map,              members) \
+    i_prop    (X,Y, public,     path,             from_include) \
     i_prop    (X,Y, intern,     LLVMScope,        scope) \
     i_prop    (X,Y, intern,     LLVMTypeRef,      type) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,  debug) \
     i_method  (X,Y, public,     model, alias,     string, reference, array) \
     i_method  (X,Y, public,     i64, cmp,         model) \
+    i_override(X,Y, cast,       string) \
     i_override(X,Y, method,     init)
 #ifndef model_intern
 #define model_intern isize(model)
@@ -82,6 +84,7 @@ declare_class(model)
     i_prop(X,Y, public,     bool,                   va_args) \
     i_prop(X,Y, public,     array,                  args) \
     i_prop(X,Y, public,     model,                  record) \
+    i_prop(X,Y, public,     interface,              access) \
     i_prop(X,Y, public,     member,                 target) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
     i_prop(X,Y, intern,     LLVMValueRef,           value) \
@@ -98,6 +101,12 @@ declare_mod(function, model)
 #define non_registered_intern isize(non_registered)
 #endif
 declare_mod(non_registered, model)
+
+#define statements_schema(X,Y)
+#ifndef statements_intern
+#define statements_intern isize(statements)
+#endif
+declare_mod(statements, model)
 
 // for each field, f_* name-bound class, enum or primitive
 #define record_schema(X,Y) \
@@ -149,7 +158,10 @@ declare_class(node)
     i_prop    (X,Y, public,     bool,                   is_const) \
     i_prop    (X,Y, public,     bool,                   is_assigned) \
     i_prop    (X,Y, public,     bool,                   is_type) \
+    i_prop    (X,Y, public,     bool,                   is_func) \
+    i_prop    (X,Y, public,     bool,                   is_arg) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
+    i_method  (X,Y, public,     member,                 resolve, string) \
     i_override(X,Y, method,     init)
 #ifndef member_intern
 #define member_intern isize(member)
@@ -190,8 +202,8 @@ declare_mod(ret, node)
 /// this is something i believe we require of silver for 0.88 spec
 #define ether_schema(X,Y)\
     i_prop    (X,Y, required,   path,                   source) \
-    i_prop    (X,Y, public,     string,                 lang) \
-    i_prop    (X,Y, public,     path,                   install) \
+    i_prop    (X,Y, required,   string,                 lang) \
+    i_prop    (X,Y, required,   path,                   install) \
     i_method  (X,Y, public,     none,       push_member, member) \
     i_method  (X,Y, public,     member,     function,   token, model, bool, model, array, bool, subprocedure) \
     i_method  (X,Y, public,     node,       op,         OPType, string, object, object) \
@@ -229,8 +241,10 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     model,      pop) \
     i_method  (X,Y, public,     model,      top) \
     i_method  (X,Y, public,     none,       write) \
+    i_method  (X,Y, public,     none,       build) \
     i_method  (X,Y, public,     model,      return_type) \
     i_method  (X,Y, public,     model,      context_model, AType) \
+    i_method  (X,Y, public,     none,       include, string) \
     i_prop    (X,Y, intern,     path,                   current_include) \
     i_prop    (X,Y, intern,     function,               current_fn) \
     i_prop    (X,Y, public,     model,                  top) \
