@@ -133,6 +133,12 @@ declare_mod(class, record, model)
 #endif
 declare_mod(structure, record, model)
 
+#define uni_schema(X,Y)
+#ifndef uni_intern
+#define uni_intern
+#endif
+declare_mod(uni, record, model)
+
 
 /// the base helps us require the two args we need for nodes
 /// we are also coupling type along inside node, and this must be set properly with value macro
@@ -204,6 +210,7 @@ declare_mod(ret, node)
     i_prop    (X,Y, required,   path,                   source) \
     i_prop    (X,Y, required,   string,                 lang) \
     i_prop    (X,Y, required,   path,                   install) \
+    i_prop    (X,Y, public,     bool,                   with_debug) \
     i_method  (X,Y, public,     none,       push_member, member) \
     i_method  (X,Y, public,     member,     function,   token, model, bool, model, array, bool, subprocedure) \
     i_method  (X,Y, public,     node,       op,         OPType, string, object, object) \

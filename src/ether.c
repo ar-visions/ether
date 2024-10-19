@@ -152,6 +152,11 @@ void model_init(model mdl) {
         mdl->name = new(token, chars, cs(n), source, e ? e->source : null, line, 1);
     }
 
+    if (mdl->name && eq(mdl->name, "__fsid_t")) {
+        int test = 0;
+        test++;
+    }
+
     mdl->members = new(map, hsize, 32);
 
     if (!mdl->src) {
@@ -177,6 +182,8 @@ void model_init(model mdl) {
             mdl->type = LLVMFloatType();
         else if (type == typeid(f64))
             mdl->type = LLVMDoubleType();
+        else if (type == typeid(f128))
+            mdl->type = LLVMFP128Type();
         else if (type == typeid(none))
             mdl->type = LLVMVoidType  ();
         else if (type == typeid(bool))
@@ -216,12 +223,12 @@ void model_init(model mdl) {
             if (src_name->name)
                 mdl->debug = LLVMDIBuilderCreatePointerType(e->dbg_builder, src->debug,
                     ptr_sz * 8, 0, 0, cs(name), len(name));
-        } else if (type == typeid(structure) || type == typeid(class)) {
-            record rec = mdl;
+        } else if (instanceof(mdl_src, record)) {
+            record rec = mdl_src;
             mdl->type  = rec->type;
             mdl->debug = rec->debug;
         } else if (type == typeid(function)) {
-            function fn = mdl;
+            function fn = mdl_src;
             mdl->type  = fn->type;
             mdl->debug = fn->debug;
         } else if (type == typeid(ether))
@@ -259,6 +266,10 @@ void function_init(function fn) {
     each(fn->args, member, arg) {
         verify (arg->mdl->type, "no LLVM type found for arg %o", arg->name);
         arg_types[index++] = arg->mdl->type;
+        if (LLVMGetTypeKind(arg->mdl->type) == LLVMVoidTypeKind) {
+            int test = 0;
+            test++;
+        }
         print("arg type [%i] = %s", index - 1,
             LLVMPrintTypeToString(arg->mdl->type));
         /// create debug for parameter here
@@ -338,6 +349,7 @@ void function_init(function fn) {
             LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
             LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
             fn->entry);                 // Attach it in the function's entry block
+        fn->target->value = value;
         index++;
     }
 
@@ -363,6 +375,7 @@ void function_init(function fn) {
             LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
             LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
             fn->entry);                 // Attach it in the function's entry block
+        arg->value = param_value;
         index++;
     }
 
@@ -380,7 +393,10 @@ void record_completer(record rec, object arg, object ctx) {
     }
     LLVMTypeRef*     member_types = calloc(total, sizeof(LLVMTypeRef));
     LLVMMetadataRef* member_debug = calloc(total, sizeof(LLVMMetadataRef));
+    bool is_uni = inherits(rec, uni);
     int index = 0;
+    member largest = null;
+    sz  sz_largest = 0;
     each (a, record, r) {
         pairs(r->members, i) {
             member mem = i->value;
@@ -403,13 +419,33 @@ void record_completer(record rec, object arg, object ctx) {
 
             /// this member would have been init'd already, so it may have debug however we have no debug for this 'structure'
             member_types[index]   = mem->mdl->type;
+
+            LLVMTargetDataRef target_data = rec->mod->target_data;
+            symbol cs = LLVMPrintTypeToString(mem->mdl->type);
+            print("type for %o %o = %s", rec->name, mem->name, cs);
+            record rmdl = instanceof(mem->mdl, record);
+            if (rmdl && rmdl->completer) {
+                push(e, rmdl);
+                invoke(rmdl->completer, rmdl);
+                pop(e);
+            }
+            int sz1 = LLVMABISizeOfType(target_data, mem->mdl->type);
+
             member_debug[index++] = mem->debug;
+            print("member on %o:%o %i", rec->name, i->key, (int)sz1);
+
+            if (!sz_largest || sz1 > sz_largest) {
+                largest = mem;
+                sz_largest = sz1;
+            }
         }
     }
-
-    LLVMStructSetBody(rec->type, member_types, index, 0);
-    ether_ft etest1 = &ether_type;
-    int offset1 = offsetof(struct ether, target_data);
+    if (is_uni) {
+        verify(sz_largest, "cannot determine size of union");
+        LLVMStructSetBody(rec->type, &largest->mdl->type, 1, 0);
+    } else
+        LLVMStructSetBody(rec->type, member_types, index, 0);
+    
     LLVMTargetDataRef target_data = rec->mod->target_data;
     int sz = LLVMABISizeOfType     (target_data, rec->type);
     int al = LLVMABIAlignmentOfType(target_data, rec->type);
@@ -436,6 +472,7 @@ void record_completer(record rec, object arg, object ctx) {
     if (prev) {
         LLVMMetadataReplaceAllUsesWith(prev, rec->debug);
     }
+    rec->completer = null;
 }
 
 #define LLVMDwarfTag(tag) (tag)
@@ -594,6 +631,12 @@ static node operand(ether e, object op) {
 }
 
 model model_alias(model src, string name, reference r, array shape) {
+    record rec = instanceof(src, record);
+    if (rec && rec->completer) {
+        int test = 2;
+        test++;
+        invoke(rec->completer, rec); // this will set the type, so we may use it in model_init
+    }
     model  ref = new(model,
         mod,    src->mod,
         name,   name,
@@ -692,7 +735,7 @@ node ether_convert(ether e, node expr, model rtype) {
     LLVMBuilderRef B = e->builder;
 
     // integer conversion
-    if (F_kind == LLVMIntegerTypeKind && T_kind == LLVMIntegerTypeKind) {
+    if (F_kind == LLVMIntegerTypeKind &&  T_kind == LLVMIntegerTypeKind) {
         uint F_bits = LLVMGetIntTypeWidth(F->type), T_bits = LLVMGetIntTypeWidth(T->type);
         if (F_bits < T_bits)
             V = is_signed(F) ? LLVMBuildSExt(B, V, T->type, "sext")
@@ -707,36 +750,36 @@ node ether_convert(ether e, node expr, model rtype) {
 
     // int to real
     else if (F_kind == LLVMIntegerTypeKind && (T_kind == LLVMFloatTypeKind || T_kind == LLVMDoubleTypeKind))
-        V = is_signed(F) ? LLVMBuildSIToFP(B, expr->value, T->type, "sitofp")
-                         : LLVMBuildUIToFP(B, expr->value, T->type, "uitofp");
+        V = is_signed(F) ? LLVMBuildSIToFP(B, V, T->type, "sitofp")
+                         : LLVMBuildUIToFP(B, V, T->type, "uitofp");
 
     // real to int
     else if ((F_kind == LLVMFloatTypeKind || F_kind == LLVMDoubleTypeKind) && T_kind == LLVMIntegerTypeKind)
-        V = is_signed(T) ? LLVMBuildFPToSI(B, expr->value, T->type, "fptosi")
-                         : LLVMBuildFPToUI(B, expr->value, T->type, "fptoui");
+        V = is_signed(T) ? LLVMBuildFPToSI(B, V, T->type, "fptosi")
+                         : LLVMBuildFPToUI(B, V, T->type, "fptoui");
 
     // real conversion
     else if ((F_kind == LLVMFloatTypeKind || F_kind == LLVMDoubleTypeKind) && 
              (T_kind == LLVMFloatTypeKind || T_kind == LLVMDoubleTypeKind))
         V = F_kind == LLVMDoubleTypeKind && T_kind == LLVMFloatTypeKind ? 
-            LLVMBuildFPTrunc(B, expr->value, T->type, "fptrunc") :
-            LLVMBuildFPExt  (B, expr->value, T->type, "fpext");
+            LLVMBuildFPTrunc(B, V, T->type, "fptrunc") :
+            LLVMBuildFPExt  (B, V, T->type, "fpext");
 
     // ptr conversion
     else if (is_ref(F) && is_ref(T))
-        V = LLVMBuildPointerCast(B, expr->value, T->type, "ptr_cast");
+        V = LLVMBuildPointerCast(B, V, T->type, "ptr_cast");
 
     // ptr to int
     else if (is_ref(F) && is_integral(T))
-        V = LLVMBuildPtrToInt(B, expr->value, T->type, "ptr_to_int");
+        V = LLVMBuildPtrToInt(B, V, T->type, "ptr_to_int");
 
     // int to ptr
     else if (is_integral(F) && is_ref(T))
-        V = LLVMBuildIntToPtr(B, expr->value, T->type, "int_to_ptr");
+        V = LLVMBuildIntToPtr(B, V, T->type, "int_to_ptr");
 
     // bitcast for same-size types
     else if (F_kind == T_kind)
-        V = LLVMBuildBitCast(B, expr->value, T->type, "bitcast");
+        V = LLVMBuildBitCast(B, V, T->type, "bitcast");
 
     else
         fault("unsupported cast");
@@ -812,18 +855,19 @@ model ether_base_model(ether e, symbol name, AType native) {
 void ether_define_primitive(ether e) {
     e->base = new(map, hsize, 64);
     model none = ether_base_model(e, "void", typeid(none));
-    ether_base_model(e, "bool", typeid(bool));
-    ether_base_model(e, "u8", typeid(u8));
-    ether_base_model(e, "u16", typeid(u16));
-    ether_base_model(e, "u32", typeid(u32));
+                ether_base_model(e, "bool", typeid(bool));
+                ether_base_model(e, "u8", typeid(u8));
+                ether_base_model(e, "u16", typeid(u16));
+                ether_base_model(e, "u32", typeid(u32));
     model u64 = ether_base_model(e, "u64", typeid(u64));
     model i8  = ether_base_model(e, "i8",  typeid(i8));
-    ether_base_model(e, "i16", typeid(i16));
+                ether_base_model(e, "i16", typeid(i16));
     model i32 = ether_base_model(e, "i32", typeid(i32));
     model i64 = ether_base_model(e, "i64", typeid(i64));
-    ether_base_model(e, "f32", typeid(i32));
-    ether_base_model(e, "f64", typeid(i64));
-    
+                ether_base_model(e, "f32",  typeid(f32));
+                ether_base_model(e, "f64",  typeid(f64));
+                ether_base_model(e, "f128", typeid(f128));
+
     model _cstr = model_alias(i8, str("cstr"), reference_pointer, null);
     set(e->base, str("cstr"), _cstr);
     ether_push_model(e, _cstr);
@@ -853,6 +897,7 @@ member ether_lookup(ether e, string name) {
     verify(instanceof(name, string), "name is not string");
     for (int i = len(e->lex) - 1; i >= 0; i--) {
         model ctx = e->lex->elements[i];
+        AType ctx_type = isa(ctx);
         member  m = get(ctx->members, name);
         if (m)
             return  m;
@@ -886,6 +931,7 @@ model ether_pop(ether e) {
 }
 
 
+enum CXChildVisitResult visit_member(CXCursor cursor, CXCursor parent, CXClientData client_data);
 
 model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
     string    t = null;
@@ -893,6 +939,9 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
     CXType base = cxType;
     array shape = null;
 
+    while (base.kind == CXType_Elaborated)
+        base = clang_Type_getNamedType(base);
+    
     while (base.kind == CXType_Pointer || base.kind == CXType_ConstantArray || base.kind == CXType_IncompleteArray) {
         if (base.kind == CXType_Pointer) {
             base = clang_getPointeeType(base);
@@ -909,32 +958,67 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
         }
     }
 
+    while (base.kind == CXType_Elaborated)
+        base = clang_Type_getNamedType(base);
+
     switch (base.kind) {
-        case CXType_Void:   t = str("void"); break;
-        case CXType_Char_S: t = str("i8");   break;
-        case CXType_Char_U: t = str("u8");   break;
-        case CXType_SChar:  t = str("i8");   break;
-        case CXType_UChar:  t = str("u8");   break;
-        case CXType_Char16: t = str("i16");  break;
-        case CXType_Char32: t = str("i32");  break;
-        case CXType_Bool:   t = str("bool"); break;
-        case CXType_UShort: t = str("u16");  break;
-        case CXType_Short:  t = str("i16");  break;
-        case CXType_UInt:   t = str("u32");  break;
-        case CXType_Int:    t = str("i32");  break;
-        case CXType_ULong:  t = str("u64");  break;
-        case CXType_Long:   t = str("i64");  break;
-        case CXType_Float:  t = str("f32");  break;
-        case CXType_Double: t = str("f64");  break;
+        case CXType_Typedef: {
+            CXString n = clang_getTypedefName(base);
+            symbol  cs = clang_getCString(n);
+            t = str(cs);
+            clang_disposeString(n);
+            printf("typedef name: %s\n", cs);
+            if (!emodel(cs)) {
+                CXType canonicalType = clang_getCanonicalType(base);
+                model  resolved_mdl  = cx_to_model(e, canonicalType, name, arg_rules);
+                model  typedef_mdl   = model_alias(resolved_mdl, t, reference_value, null);
+                ether_push_model(e, typedef_mdl);
+                return typedef_mdl;
+            }
+            break;
+        }
+        case CXType_Void:       t = str("void"); break;
+        case CXType_Char_S:     t = str("i8");   break;
+        case CXType_Char_U:     t = str("u8");   break;
+        case CXType_SChar:      t = str("i8");   break;
+        case CXType_UChar:      t = str("u8");   break;
+        case CXType_Char16:     t = str("i16");  break;
+        case CXType_Char32:     t = str("i32");  break;
+        case CXType_Bool:       t = str("bool"); break;
+        case CXType_UShort:     t = str("u16");  break;
+        case CXType_Short:      t = str("i16");  break;
+        case CXType_UInt:       t = str("u32");  break;
+        case CXType_Int:        t = str("i32");  break;
+        case CXType_ULong:      t = str("u64");  break;
+        case CXType_Long:       t = str("i64");  break;
+        case CXType_LongLong:   t = str("i64");  break;
+        case CXType_ULongLong:  t = str("u64");  break;
+        case CXType_Float:      t = str("f32");  break;
+        case CXType_Double:     t = str("f64");  break;
+        case CXType_LongDouble: t = str("f128"); break;
         case CXType_Record: {
-            assert(false, "?");
             CXString n = clang_getTypeSpelling(base);
             t = str(clang_getCString(n));
-            if (!emodel(t->chars)) {
-                model mdl = new(structure, mod, e, name, t);
-                ether_push_model(e, mdl);
-            }
             clang_disposeString(n);
+            if (!emodel(t->chars)) {
+                CXCursor rcursor       = clang_getTypeDeclaration(base);
+                enum CXCursorKind kind = clang_getCursorKind(rcursor);
+                bool anon              = clang_Cursor_isAnonymous(rcursor);
+                record def;
+                
+                if (kind == CXCursor_StructDecl)
+                    def = new(structure,
+                        mod, e, from_include, e->current_include, name, t, completer, record_completer);
+                else if (kind == CXCursor_UnionDecl)
+                    def = new(uni, // lets assume its anonymous, how do we get the members associated to it?  how do you differentiate from the other peers if its blended into parent?  makes no sense.
+                        mod, e, from_include, e->current_include, name, t);
+                else {
+                    fault("unknown record kind");
+                }
+                ether_push_model(e, def);
+                clang_visitChildren(rcursor, visit_member, def);
+                return def;
+            }
             break;
         }
         default:
@@ -955,13 +1039,20 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
 enum CXChildVisitResult visit_member(CXCursor cursor, CXCursor parent, CXClientData client_data) {
     model  type_def = (model)client_data;
     ether  e      = type_def->mod;
-    if (clang_getCursorKind(cursor) == CXCursor_FieldDecl) {
+    enum CXCursorKind kind = clang_getCursorKind(cursor);
+    if (kind == CXCursor_FieldDecl) {
         ether_push(e, type_def);
         CXType   field_type    = clang_getCursorType(cursor);
         CXString field_name    = clang_getCursorSpelling(cursor);
         CXString field_ts      = clang_getTypeSpelling(field_type);
         symbol   field_type_cs = clang_getCString(field_ts);
         symbol   field_name_cs = clang_getCString(field_name);
+        if (eq(type_def->name, "__atomic_wide_counter")) {
+            static int test = 0;
+            test++;
+            if (test == 4)
+                test++;
+        }
         model    mdl = cx_to_model(e, field_type, (cstr)field_name_cs, false);
         member   mem = emember(mdl, field_name_cs);
         set(type_def->members, str(field_name_cs), mem);
@@ -993,8 +1084,8 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
             int      n_args   = clang_Cursor_getNumArguments(cursor);
             array    args     = new(array, alloc, 32);
 
-            if (!eq(name, "printf"))
-                return CXChildVisit_Recurse;
+            //if (!eq(name, "printf"))
+            //    return CXChildVisit_Recurse;
             
             for (int i = 0; i < n_args; i++) {
                 CXCursor arg_cursor = clang_Cursor_getArgument(cursor, i);
@@ -1004,7 +1095,7 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
                 CXString pcx_type   = clang_getTypeSpelling   (arg_cxtype);
                 symbol   arg_type   = clang_getCString        (pcx_type);
 
-                if (eq(name, "printf")) {
+                if (eq(name, "qecvt")) {
                     int test = 1;
                     test++;
                 }
@@ -1043,6 +1134,11 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
             }
             CXString underlying_type_name = clang_getTypeSpelling(underlying_type);
             const char *type_name = clang_getCString(underlying_type_name);
+
+            if (strcmp(type_name, "off_t") == 0) {
+                int test = 1;
+                test++;
+            }
 
             /// this may be a different depth, which we need to adjust for
             model model_base = underlying_type.kind ?
@@ -1369,6 +1465,7 @@ node ether_literal(ether e, object n) {
     if (ntype == typeid(u64))  return value(emodel("u64"),  LLVMConstInt(LLVMInt64Type(),  *(u64*)n, 0));
     if (ntype == typeid(f32))  return value(emodel("f32"),  LLVMConstInt(LLVMFloatType(),  *(f32*)n, 0));
     if (ntype == typeid(f64))  return value(emodel("f64"),  LLVMConstInt(LLVMDoubleType(), *(f64*)n, 0));
+    if (ntype == typeid(f128))  return value(emodel("f128"),  LLVMConstInt(LLVMFP128Type(), *(f128*)n, 0));
     if (ntype == typeid(string))
         return value(emodel("symbol"), LLVMBuildGlobalStringPtr(e->builder, ((string)n)->chars, "str"));
     fault ("literal not handled: %s", ntype->name);
@@ -1534,15 +1631,17 @@ void ether_builder_main(ether e, function fn, map ctx) {
 void ether_build(ether e) {
     /// define structs and classes before we write our functions (which reference the members)
     pairs(e->members, i) {
-        member mem = i->value;
-        model  f   = mem->mdl;
-        if (isa(f) == typeid(record)) {
-            record rec = f;
-            if (rec->completer) {
-                model ctx = push(e, rec);
-                invoke(rec->completer, rec);
-                pop(e);
-            }
+        member mem  = i->value;
+        string name = instanceof(i->key, string);
+        record rec  = instanceof(mem->mdl, record);
+        if (eq(name, "launcher")) {
+            int test = 1;
+            test++;
+        }
+        if (rec && rec->completer) {
+            push(e, rec);
+            invoke(rec->completer, rec);
+            pop(e);
         }
     }
     pairs(e->members, i) {
@@ -1552,7 +1651,10 @@ void ether_build(ether e) {
             function fn = f;
             if (fn->completer) {
                 LLVMPositionBuilderAtEnd(e->builder, fn->entry);
-                model ctx = push(e, fn);
+                push(e, fn);
+                set(fn->members, str("this"), fn->target);
+                each(fn->args, member, arg_mem)
+                    set(fn->members, str(arg_mem->name->chars), arg_mem);
                 invoke(fn->completer, f);
                 pop(e);
             }
@@ -1675,6 +1777,7 @@ define_mod       (statements,      model)
 
 define_mod       (function,  model)
 define_mod       (record,    model)
+define_mod       (uni,       record)
 define_mod       (structure, record)
 define_mod       (class,     record)
 define_mod       (ether,     model)

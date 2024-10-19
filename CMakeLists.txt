@@ -20,4 +20,4 @@ target_link_libraries     (ether
     ${L}/libLLVMX86AsmParser.so
     ${L}/libLLVMX86Desc.so
     ${L}/libLLVMX86Info.so
-    ${L}/libclang.so)
+    ${L}/libclang.so.18.1.8)
