@@ -53,29 +53,40 @@ void ether_push_member(ether e, member mem) {
 
 static map operators;
 
-bool is_bool     (member f) { return f->mdl->src && isa(f->mdl->src) == typeid(bool); }
-bool is_float    (member f) { return f->mdl->src && isa(f->mdl->src) == typeid(f32);  }
-bool is_double   (member f) { return f->mdl->src && isa(f->mdl->src) == typeid(f64);  }
-bool is_realistic(member f) { return f->mdl->src && isa(f->mdl->src)->traits & A_TRAIT_REALISTIC; }
-bool is_integral (member f) { return f->mdl->src && isa(f->mdl->src)->traits & A_TRAIT_INTEGRAL;  }
-bool is_signed   (member f) { return f->mdl->src && isa(f->mdl->src)->traits & A_TRAIT_SIGNED;    }
-bool is_unsigned (member f) { return f->mdl->src && isa(f->mdl->src)->traits & A_TRAIT_UNSIGNED;  }
+AType model_primitive(model mdl) {
+    model src = mdl->src;
+    while (instanceof(src, model)) {
+        src = src->src;
+    }
+    return isa(src);
+}
+bool is_bool     (model f) { return f->src && isa(f->src) == typeid(bool); }
+bool is_float    (model f) { return f->src && isa(f->src) == typeid(f32);  }
+bool is_double   (model f) { return f->src && isa(f->src) == typeid(f64);  }
+bool is_realistic(model f) { return f->src && isa(f->src)->traits & A_TRAIT_REALISTIC; }
+bool is_integral (model f) { return f->src && isa(f->src)->traits & A_TRAIT_INTEGRAL;  }
+bool is_signed   (model f) { return f->src && isa(f->src)->traits & A_TRAIT_SIGNED;    }
+bool is_unsigned (model f) { return f->src && isa(f->src)->traits & A_TRAIT_UNSIGNED;  }
 
-bool is_object   (member f) {
-    return isa(f->mdl) == typeid(structure) || 
-           isa(f->mdl) == typeid(class);
+bool is_void     (model f) {
+    return f ? f->size == 0 : false;
 }
 
-bool is_class    (member f) {
-    return isa(f->mdl) == typeid(class);
+bool is_object   (model f) {
+    return isa(f) == typeid(structure) || 
+           isa(f) == typeid(class);
 }
 
-bool is_struct   (member f) {
-    return isa(f->mdl) == typeid(structure);
+bool is_class    (model f) {
+    return isa(f) == typeid(class);
 }
 
-bool is_ref      (member f) {
-    return isa(f->mdl) == typeid(model);
+bool is_struct   (model f) {
+    return isa(f) == typeid(structure);
+}
+
+bool is_ref      (model f) {
+    return isa(f) == typeid(model);
 }
 
 void init() {
@@ -117,6 +128,23 @@ void init() {
 }
 
 module_init(init);
+
+void model_process_finalize(model mdl) { // nobody calls finalize except us, here
+    ether e = mdl->mod;
+    if (mdl->finalized) return;
+    mdl->finalized = true;
+    if (mdl->process) {
+        push(e, mdl);
+        invoke(mdl->process, mdl);
+        mdl->process = null;
+        pop(e);
+    }
+    call(mdl, finalize);
+}
+
+/// 'record' does things with this, as well as 'function'
+void model_finalize(model mdl) {
+}
 
 string model_cast_string(model mdl) {
     if (mdl->name) return mdl->name;
@@ -245,6 +273,63 @@ void model_init(model mdl) {
 
 model model_alias(model src, string name, reference r, array shape);
 
+void function_finalize(function fn) {
+    ether e = fn->mod;
+    int index = 0;
+    if (fn->target) {
+        LLVMMetadataRef meta = LLVMDIBuilderCreateParameterVariable(
+            e->dbg_builder,          // DIBuilder reference
+            fn->scope,         // The scope (subprogram/function metadata)
+            "this",            // Parameter name
+            4,
+            1,                 // Argument index (starting from 1, not 0)
+            e->file,           // File where it's defined
+            fn->name->line,    // Line number
+            fn->target->mdl->debug,   // Debug type of the parameter (LLVMMetadataRef for type)
+            1,                 // AlwaysPreserve (1 to ensure the variable is preserved in optimized code)
+            0                  // Flags (typically 0)
+        );
+        LLVMValueRef first_instr = LLVMGetFirstInstruction(fn->entry);
+        
+        assert(LLVMIsAInstruction(first_instr), "not a instr"); /// we may simply insert a return if there is nothing?
+        
+        LLVMValueRef decl  = LLVMDIBuilderInsertDeclareBefore(
+            e->dbg_builder,                 // The LLVM builder
+            fn->target->value,              // The LLVMValueRef for the first parameter
+            meta,                           // The debug metadata for the first parameter
+            LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
+            LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
+            first_instr);                   // Attach it in the function's entry block
+        index++;
+    }
+
+    each(fn->args, member, arg) {
+        /// create debug for parameter here
+        LLVMMetadataRef param_meta = LLVMDIBuilderCreateParameterVariable(
+            e->dbg_builder,          // DIBuilder reference
+            fn->scope,         // The scope (subprogram/function metadata)
+             cs(arg->name),    // Parameter name
+            len(arg->name),
+            1 + index,         // Argument index (starting from 1, not 0)
+            e->file,           // File where it's defined
+            arg->name->line,   // Line number
+            arg->mdl->debug,   // Debug type of the parameter (LLVMMetadataRef for type)
+            1,                 // AlwaysPreserve (1 to ensure the variable is preserved in optimized code)
+            0                  // Flags (typically 0)
+        );
+        LLVMValueRef param_value = LLVMGetParam(fn->value, index);
+        LLVMValueRef decl        = LLVMDIBuilderInsertDeclareAtEnd(
+            e->dbg_builder,                   // The LLVM builder
+            param_value,                
+            param_meta,                 // The debug metadata for the first parameter
+            LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
+            LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
+            fn->entry);                 // Attach it in the function's entry block
+        arg->value = param_value;
+        index++;
+    }
+}
+
 void function_init(function fn) {
     ether e = fn->mod;
     /// create function and its debug information
@@ -266,13 +351,8 @@ void function_init(function fn) {
     each(fn->args, member, arg) {
         verify (arg->mdl->type, "no LLVM type found for arg %o", arg->name);
         arg_types[index++] = arg->mdl->type;
-        if (LLVMGetTypeKind(arg->mdl->type) == LLVMVoidTypeKind) {
-            int test = 0;
-            test++;
-        }
         print("arg type [%i] = %s", index - 1,
             LLVMPrintTypeToString(arg->mdl->type));
-        /// create debug for parameter here
     }
 
     fn->type  = LLVMFunctionType(fn->rtype->type, arg_types, index, fn->va_args);
@@ -283,7 +363,7 @@ void function_init(function fn) {
     LLVMSetLinkage(fn->value,
         fn->access == interface_intern ? LLVMInternalLinkage : LLVMExternalLinkage);
 
-    if (!fn->completer)
+    if (!fn->process)
         return;
     
     // Create function debug info
@@ -327,61 +407,15 @@ void function_init(function fn) {
 
     /// create debug info for arguments (including target)
     index = 0;
-
     if (fn->target) {
-        LLVMMetadataRef meta = LLVMDIBuilderCreateParameterVariable(
-            e->dbg_builder,          // DIBuilder reference
-            fn->scope,         // The scope (subprogram/function metadata)
-            "this",            // Parameter name
-            4,
-            1,                 // Argument index (starting from 1, not 0)
-            e->file,           // File where it's defined
-            fn->name->line,    // Line number
-            fn->target->mdl->debug,   // Debug type of the parameter (LLVMMetadataRef for type)
-            1,                 // AlwaysPreserve (1 to ensure the variable is preserved in optimized code)
-            0                  // Flags (typically 0)
-        );
-        LLVMValueRef value = LLVMGetParam(fn->value, 0);
-        LLVMValueRef decl  = LLVMDIBuilderInsertDeclareBefore(
-            e->dbg_builder,                   // The LLVM builder
-            value,                      // The LLVMValueRef for the first parameter
-            meta,                       // The debug metadata for the first parameter
-            LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
-            LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
-            fn->entry);                 // Attach it in the function's entry block
-        fn->target->value = value;
-        index++;
+        fn->target->value = LLVMGetParam(fn->value, index++);
     }
-
     each(fn->args, member, arg) {
-        /// create debug for parameter here
-        LLVMMetadataRef param_meta = LLVMDIBuilderCreateParameterVariable(
-            e->dbg_builder,          // DIBuilder reference
-            fn->scope,         // The scope (subprogram/function metadata)
-             cs(arg->name),    // Parameter name
-            len(arg->name),
-            1 + index,         // Argument index (starting from 1, not 0)
-            e->file,           // File where it's defined
-            arg->name->line,   // Line number
-            arg->mdl->debug,   // Debug type of the parameter (LLVMMetadataRef for type)
-            1,                 // AlwaysPreserve (1 to ensure the variable is preserved in optimized code)
-            0                  // Flags (typically 0)
-        );
-        LLVMValueRef param_value = LLVMGetParam(fn->value, index);
-        LLVMValueRef decl        = LLVMDIBuilderInsertDeclareAtEnd(
-            e->dbg_builder,                   // The LLVM builder
-            param_value,                
-            param_meta,                 // The debug metadata for the first parameter
-            LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
-            LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
-            fn->entry);                 // Attach it in the function's entry block
-        arg->value = param_value;
-        index++;
+        arg->value = LLVMGetParam(fn->value, index++);
     }
-
 }
 
-void record_completer(record rec, object arg, object ctx) {
+void record_finalize(record rec) {
     ether e = rec->mod;
     int total = 0;
     record r = rec;
@@ -402,7 +436,10 @@ void record_completer(record rec, object arg, object ctx) {
             member mem = i->value;
             verify( mem->name,  "no name on member");
             verify(!mem->debug, "debug info already present on member created for structure");
-
+            model_process_finalize(mem->mdl);
+            if (instanceof(mem->mdl, function))
+                continue;
+            
             mem->debug = LLVMDIBuilderCreateMemberType(
                 e->dbg_builder,              // LLVMDIBuilderRef
                 e->top->scope,         // Scope of the member (can be the struct, class or base module)
@@ -423,17 +460,9 @@ void record_completer(record rec, object arg, object ctx) {
             LLVMTargetDataRef target_data = rec->mod->target_data;
             symbol cs = LLVMPrintTypeToString(mem->mdl->type);
             print("type for %o %o = %s", rec->name, mem->name, cs);
-            record rmdl = instanceof(mem->mdl, record);
-            if (rmdl && rmdl->completer) {
-                push(e, rmdl);
-                invoke(rmdl->completer, rmdl);
-                pop(e);
-            }
             int sz1 = LLVMABISizeOfType(target_data, mem->mdl->type);
-
             member_debug[index++] = mem->debug;
             print("member on %o:%o %i", rec->name, i->key, (int)sz1);
-
             if (!sz_largest || sz1 > sz_largest) {
                 largest = mem;
                 sz_largest = sz1;
@@ -472,7 +501,7 @@ void record_completer(record rec, object arg, object ctx) {
     if (prev) {
         LLVMMetadataReplaceAllUsesWith(prev, rec->debug);
     }
-    rec->completer = null;
+    rec->process = null;
 }
 
 #define LLVMDwarfTag(tag) (tag)
@@ -498,30 +527,30 @@ void record_init(record rec) {
         0                                    // Size and alignment (initially 0, finalized later)
     );
     
-    if (len(rec->members)) {
-        record_completer(rec, null, null);
-    } else {
-        //verify(!rec->completer, "completer internally set");
-        rec->completer = subproc(rec, record_completer, null);
-        //rec->a_number++;
-        //verify(rec->a_number == 1, "__fsid_t?");
-    }
-}
-
-void record_load(record rec) {
-    record_completer(rec, null, null);
+    if (len(rec->members))
+        model_process_finalize(rec);
 }
 
 member member_resolve(member mem, string name) {
     ether  e   = mem->mod;
-    item   i   = item_of(mem->mdl->members, name);
-    verify(i, "member %o not found in type %o", name, mem->mdl->name);
-    i64    index  = *(i64*)i->key;
-    member schema = i->value;
-    member res = emember(schema->mdl, name->chars);
-    res->value = LLVMBuildStructGEP2(
-        e->builder, mem->mdl->type, mem->value, index, "resolve");
-    return res;
+    i64  index = 0;
+    pairs(mem->mdl->members, i) {
+        if (compare(i->key, name) == 0) {
+            member schema = i->value;
+            member res = emember(schema->mdl, name->chars);
+            function fn = instanceof(schema->mdl, function);
+            res->value = fn ? fn->value : LLVMBuildStructGEP2(
+                    e->builder, mem->mdl->type, mem->value, index, "resolve");
+            /// store what target this member came from
+            res->target = mem;
+            if (fn)
+                res->is_func = true;
+            return res;
+        }
+        index++;
+    }
+    fault("member %o not found in type %o", name, mem->mdl->name);
+    return null;
 }
 
 void member_set_debug(member mem) {
@@ -632,11 +661,8 @@ static node operand(ether e, object op) {
 
 model model_alias(model src, string name, reference r, array shape) {
     record rec = instanceof(src, record);
-    if (rec && rec->completer) {
-        int test = 2;
-        test++;
-        invoke(rec->completer, rec); // this will set the type, so we may use it in model_init
-    }
+    if (rec)
+        model_process_finalize(rec);
     model  ref = new(model,
         mod,    src->mod,
         name,   name,
@@ -715,10 +741,8 @@ node ether_load(ether e, node n, model mdl, object offset) {
     } else
         ptr = n->value;
     
-    return value(mdl_result, LLVMBuildLoad2(e->builder, mdl_result->type, ptr, "load-member"));
-}
-
-void record_a_record_fn(record rec) {
+    LLVMValueRef res = LLVMBuildLoad2(e->builder, mdl_result->type, ptr, "load-member");
+    return value(mdl_result, res);
 }
 
 /// general signed/unsigned/1-64bit and float/double conversion
@@ -781,6 +805,8 @@ node ether_convert(ether e, node expr, model rtype) {
     else if (F_kind == T_kind)
         V = LLVMBuildBitCast(B, V, T->type, "bitcast");
 
+    else if (F_kind == LLVMVoidTypeKind)
+        V = LLVMConstNull(T->type);
     else
         fault("unsupported cast");
 
@@ -967,7 +993,7 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
             symbol  cs = clang_getCString(n);
             t = str(cs);
             clang_disposeString(n);
-            printf("typedef name: %s\n", cs);
+            printf("typedef name: %s\n", t->chars);
             if (!emodel(cs)) {
                 CXType canonicalType = clang_getCanonicalType(base);
                 model  resolved_mdl  = cx_to_model(e, canonicalType, name, arg_rules);
@@ -1008,7 +1034,7 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
                 
                 if (kind == CXCursor_StructDecl)
                     def = new(structure,
-                        mod, e, from_include, e->current_include, name, t, completer, record_completer);
+                        mod, e, from_include, e->current_include, name, t);
                 else if (kind == CXCursor_UnionDecl)
                     def = new(uni, // lets assume its anonymous, how do we get the members associated to it?  how do you differentiate from the other peers if its blended into parent?  makes no sense.
                         mod, e, from_include, e->current_include, name, t);
@@ -1122,8 +1148,6 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
                 from_include, e->current_include,
                 name,       name);
             clang_visitChildren(cursor, visit_member, def);
-            // todo: we want to load this normal async with the rest of the types
-            //record_load(def);
             break;
         }
         case CXCursor_TypedefDecl: { /// these might be given out of order.
@@ -1417,10 +1441,9 @@ node ether_not_eq(ether e, node L, node R) {
 node ether_freturn(ether e, object o) {
     function fn = ether_context_model(e, typeid(function));
     verify (fn, "function not found in context");
-    /// this needs to go through the actual stack
 
-    /// fn->rtype->ref is the LLVMTypeRef for this function
-    /// if 'operand' doesnt equal teh same type, lets convert it
+    if (!o) return value(fn->rtype, LLVMBuildRetVoid(e->builder));
+
     node conv = ether_convert(e, operand(e, o), fn->rtype);
     return value(fn->rtype, LLVMBuildRet(e->builder, conv->value));
 }
@@ -1436,6 +1459,8 @@ node ether_fcall(ether e, member fn_mem, node target, array args) {
     LLVMValueRef V = fn->value; // todo: args in ether should be a map.  that way we can do a bit more
 
     int index = 0;
+    verify(!!target == !!fn->target, "target mismatch");
+
     if (target)
         arg_values[index++] = target->value;
     each (args, object, value) {
@@ -1447,7 +1472,8 @@ node ether_fcall(ether e, member fn_mem, node target, array args) {
         print("ether_fcall: %o arg[%i]: vr: %p, type: %s", fn_mem->name, index, vr, LLVMPrintTypeToString(LLVMTypeOf(vr)));
         index++;
     }
-    LLVMValueRef R = LLVMBuildCall2(e->builder, F, V, arg_values, index, "call");
+    bool is_void_ = is_void(fn->rtype);
+    LLVMValueRef R = LLVMBuildCall2(e->builder, F, V, arg_values, index, is_void_ ? "" : "call");
     free(arg_values);
     return value(F, R);
 }
@@ -1606,11 +1632,11 @@ node ether_inherits(ether e, node L, object R) {
 /// return model (type) for function
 member ether_function(
         ether e,     token name, model record, bool is_instance,
-        model rtype, array args, bool  va_args, subprocedure completer) {
+        model rtype, array args, bool  va_args, subprocedure process) {
     function fn  = new(function, mod, e,
         name,    name,      record,  record, is_instance, is_instance,
         rtype,   rtype,     args,    args,
-        va_args, va_args,   completer, completer);
+        va_args, va_args,   process, process);
     model  mdl = new(model,    mod, e, name, name, src, fn);
     member mem = emember(mdl, name->chars);
     /// function should not set 'is-type'
@@ -1634,28 +1660,21 @@ void ether_build(ether e) {
         member mem  = i->value;
         string name = instanceof(i->key, string);
         record rec  = instanceof(mem->mdl, record);
-        if (eq(name, "launcher")) {
-            int test = 1;
-            test++;
-        }
-        if (rec && rec->completer) {
-            push(e, rec);
-            invoke(rec->completer, rec);
-            pop(e);
-        }
+        if (rec)
+            model_process_finalize(rec);
     }
     pairs(e->members, i) {
         member mem = i->value;
         model  f   = mem->mdl;
         if (isa(f) == typeid(function)) {
             function fn = f;
-            if (fn->completer) {
+            if (fn->process) {
                 LLVMPositionBuilderAtEnd(e->builder, fn->entry);
                 push(e, fn);
                 set(fn->members, str("this"), fn->target);
                 each(fn->args, member, arg_mem)
                     set(fn->members, str(arg_mem->name->chars), arg_mem);
-                invoke(fn->completer, f);
+                invoke(fn->process, f);
                 pop(e);
             }
         }

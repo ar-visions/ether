@@ -61,15 +61,18 @@ declare_enum(reference)
     i_prop    (X,Y, public,     array,            shape) \
     i_prop    (X,Y, public,     sz,               size) \
     i_prop    (X,Y, public,     sz,               alignment) \
-    i_prop    (X,Y, public,     subprocedure,     completer) \
     i_prop    (X,Y, public,     model,            rtype) \
     i_prop    (X,Y, public,     map,              members) \
     i_prop    (X,Y, public,     path,             from_include) \
+    i_prop    (X,Y, public,     object,           user) \
     i_prop    (X,Y, intern,     LLVMScope,        scope) \
     i_prop    (X,Y, intern,     LLVMTypeRef,      type) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,  debug) \
+    i_prop    (X,Y, public,     subprocedure,     process) \
+    i_prop    (X,Y, public,     bool,             finalized) \
     i_method  (X,Y, public,     model, alias,     string, reference, array) \
     i_method  (X,Y, public,     i64, cmp,         model) \
+    i_method  (X,Y, public,     none,             finalize) \
     i_override(X,Y, cast,       string) \
     i_override(X,Y, method,     init)
 #ifndef model_intern
@@ -88,7 +91,8 @@ declare_class(model)
     i_prop(X,Y, public,     member,                 target) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
     i_prop(X,Y, intern,     LLVMValueRef,           value) \
-    i_override(X,Y, method, init)
+    i_override(X,Y, method, init) \
+    i_override(X,Y, method, finalize)
 #ifndef function_intern
 #define function_intern isize(function)
 #endif
@@ -110,8 +114,9 @@ declare_mod(statements, model)
 
 // for each field, f_* name-bound class, enum or primitive
 #define record_schema(X,Y) \
-    i_prop(X,Y, public,   record,       parent) \
-    i_override(X,Y, method, init)
+    i_prop    (X,Y, public, record, parent) \
+    i_override(X,Y, method,         finalize) \
+    i_override(X,Y, method,         init)
 #ifndef record_intern
 #define record_intern
 #endif
@@ -160,6 +165,7 @@ declare_class(node)
 // if ref is set, its a reference to a member with type definition (model, struct, ref)
 #define member_schema(X,Y) \
     i_prop    (X,Y, public,     interface,              access) \
+    i_prop    (X,Y, public,     member,                 target) \
     i_prop    (X,Y, public,     bool,                   is_static) \
     i_prop    (X,Y, public,     bool,                   is_const) \
     i_prop    (X,Y, public,     bool,                   is_assigned) \
@@ -275,16 +281,17 @@ declare_mod(ret, node)
 #endif
 declare_mod(ether, model)
 
-bool is_bool     (member);
-bool is_float    (member);
-bool is_double   (member);
-bool is_realistic(member);
-bool is_integral (member);
-bool is_signed   (member);
-bool is_unsigned (member);
-bool is_object   (member);
-bool is_class    (member);
-bool is_struct   (member);
-bool is_ref      (member);
+bool is_void     (model);
+bool is_bool     (model);
+bool is_float    (model);
+bool is_double   (model);
+bool is_realistic(model);
+bool is_integral (model);
+bool is_signed   (model);
+bool is_unsigned (model);
+bool is_object   (model);
+bool is_class    (model);
+bool is_struct   (model);
+bool is_ref      (model);
 
 #endif
