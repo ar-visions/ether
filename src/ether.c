@@ -369,7 +369,7 @@ void function_init(function fn) {
     // Create function debug info
     LLVMMetadataRef subroutine = LLVMDIBuilderCreateSubroutineType(
         e->dbg_builder,
-        e->file,           // Scope (file)
+        e->compile_unit,   // Scope (file)
         NULL,              // Parameter types (None for simplicity)
         0,                 // Number of parameters
         LLVMDIFlagZero     // Flags
@@ -377,7 +377,7 @@ void function_init(function fn) {
 
     fn->scope = LLVMDIBuilderCreateFunction(
         e->dbg_builder,
-        e->file,                // Scope (file)
+        e->compile_unit,        // Scope (compile_unit)
         cs(fn->name), len(fn->name),
         cs(fn->name), len(fn->name),
         e->file,                // File
@@ -439,7 +439,6 @@ void record_finalize(record rec) {
             model_process_finalize(mem->mdl);
             if (instanceof(mem->mdl, function))
                 continue;
-            
             mem->debug = LLVMDIBuilderCreateMemberType(
                 e->dbg_builder,              // LLVMDIBuilderRef
                 e->top->scope,         // Scope of the member (can be the struct, class or base module)
@@ -1217,11 +1216,12 @@ void ether_include(ether e, string include) {
 }
 
 
-void ether_set_line(ether e, i32 line, i32 column) {
+void ether_set_token(ether e, token t) {
     LLVMMetadataRef loc = LLVMDIBuilderCreateDebugLocation(
-        e->module_ctx, line, column, e->scope, null);
-    LLVMSetCurrentDebugLocation2(e->dbg_builder, loc);
+        e->module_ctx, t->line, t->column, e->top->scope, null);
+    LLVMSetCurrentDebugLocation2(e->builder, loc);
 }
+
 
 
 void ether_llflag(ether e, symbol flag, i32 ival) {
@@ -1279,8 +1279,7 @@ void ether_llvm_init(ether e) {
         cast(src_file, cstr), cast(src_file, sz),
         cast(src_path, cstr), cast(src_path, sz));
     
-    // was: compile_unit
-    e->scope = LLVMDIBuilderCreateCompileUnit(
+    e->compile_unit = LLVMDIBuilderCreateCompileUnit(
         e->dbg_builder, LLVMDWARFSourceLanguageC, e->file,
         "silver", 6, 0, "", 0,
         0, "", 0, LLVMDWARFEmissionFull, 0, 0, 0, "", 0, "", 0);
@@ -1674,6 +1673,7 @@ void ether_build(ether e) {
                 set(fn->members, str("this"), fn->target);
                 each(fn->args, member, arg_mem)
                     set(fn->members, str(arg_mem->name->chars), arg_mem);
+                ether_set_token(e, fn->name);
                 invoke(fn->process, f);
                 pop(e);
             }
