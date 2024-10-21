@@ -86,7 +86,15 @@ bool is_struct   (model f) {
 }
 
 bool is_ref      (model f) {
-    return isa(f) == typeid(model);
+    if (f->ref != reference_value)
+        return true;
+    model src = f->src;
+    while (instanceof(src, model)) {
+        src = src->src;
+        if (f->ref != reference_value)
+            return true;
+    }
+    return false;
 }
 
 void init() {
@@ -335,6 +343,8 @@ void function_preprocess(function fn) {
     LLVMSetLinkage(fn->value,
         fn->access == interface_intern ? LLVMInternalLinkage : LLVMExternalLinkage);
 
+    if (!fn->process)
+        return;
 
     // Create function debug info
     LLVMMetadataRef subroutine = LLVMDIBuilderCreateSubroutineType(
