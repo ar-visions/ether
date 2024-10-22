@@ -299,53 +299,8 @@ void statements_init(statements st) {
     st->scope = LLVMDIBuilderCreateLexicalBlock(e->dbg_builder, e->top->scope, e->file, 1, 0);
 }
 
-void function_preprocess(function fn) {
+void function_start(function fn) {
     ether e = fn->mod;
-
-    if (eq(fn->name, "run")) {
-        br();
-    }
-    /// create function and its debug information
-    int              n_args    = len(fn->args);
-    LLVMTypeRef*     arg_types = calloc((fn->target != null) + n_args, sizeof(LLVMTypeRef));
-    int              index     = 0;
-    model            top       = fn->init_top;
-
-    if (fn->record) {
-        verify (isa(fn->record) == typeid(structure) || 
-                isa(fn->record) == typeid(class),
-            "target [incoming] must be record type (struct / class) -- it is then made pointer-to record");
-        model target_type = !fn->is_instance ? fn->record : model_alias(fn->record, fn->name, reference_pointer, null);
-        fn->target = emember(target_type, fn->name->chars);
-        arg_types[index++] = fn->target->mdl->type;
-        // verify this is a pointer type here! LLVMPointerType(fn->target->ref, 0);
-    }
-
-    print("function %o", fn->name);
-    verify(isa(fn->args) == typeid(arguments), "arg mismatch");
-    
-    each(fn->args, member, arg) {
-        verify (arg->mdl->type, "no LLVM type found for arg %o", arg->name);
-        arg_types[index++] = arg->mdl->type;
-        print("arg type [%i] = %s", index - 1,
-            LLVMPrintTypeToString(arg->mdl->type));
-    }
-
-    if (eq(fn->name, "main")) {
-        br();
-    }
-
-    fn->type  = LLVMFunctionType(fn->rtype->type, arg_types, index, fn->va_args);
-    fn->value = LLVMAddFunction(e->module, fn->name->chars, fn->type);
-    print("preprocess function: %o, type: %p, value: %p (va_args: %i)", fn->name, fn->type, fn->value, fn->va_args);
-    //free(arg_types); (llvm seems to not copy these)
-
-    LLVMSetLinkage(fn->value,
-        fn->access == interface_intern ? LLVMInternalLinkage : LLVMExternalLinkage);
-
-    if (!fn->process)
-        return;
-
     // Create function debug info
     LLVMMetadataRef subroutine = LLVMDIBuilderCreateSubroutineType(
         e->dbg_builder,
@@ -375,19 +330,8 @@ void function_preprocess(function fn) {
     fn->entry = LLVMAppendBasicBlockInContext(
         e->module_ctx, fn->value, "entry");
 
-    LLVMPositionBuilderAtEnd(e->builder, fn->entry);
-
-    // may need to push/pop the fn temporarily
-    
-    if (LLVMGetBasicBlockTerminator(fn->entry) == NULL) {
-        // Set the debug location manually
-        LLVMMetadataRef loc = LLVMDIBuilderCreateDebugLocation(
-            e->module_ctx, fn->name->line, 0, fn->scope, NULL);
-        LLVMSetCurrentDebugLocation2(e->builder, loc);
-    }
-
     /// create debug info for arguments (including target)
-    index = 0;
+    int index = 0;
     if (fn->target) {
         fn->target->value = LLVMGetParam(fn->value, index++);
         set(fn->members, str("this"), fn->target);
@@ -396,6 +340,98 @@ void function_preprocess(function fn) {
         arg->value = LLVMGetParam(fn->value, index++);
         set(fn->members, str(arg->name->chars), arg);
     }
+
+    /// look chatGPT, this is how we want to code in our functions inside of ether/silver
+    if (fn->main_member) {
+        // we have fn->main_member we want to push to context
+        push(e, fn);
+
+        /// lets go with app as a name
+        /// i think its best to do delayed placement on this main member
+        /// this way is a bit more straight forward though
+        member main_member = emember(fn->main_member->mdl, fn->main_member->name->chars);
+        node   n_create    = ecall(allocate, main_member->mdl->src); /// call allocate, does not call init yet!
+        ecall(zero, n_create);
+
+        node   n_assign    = ecall(assign, main_member, n_create); /// assign this allocation to our member
+        /// with standard assign in LLVM does the value-ref come out to the same type as your incoming from n_create->mdl->type
+        
+        /// now we must programmatically LLVM-IR iterate through the members in stack argc and argv
+
+        model  i64         = emodel("int");
+        node   arg_i       = ecall(allocate, i64);
+
+
+        /// can we not have a 'create-object' in our design-time api lol
+        pop (e);
+    }
+}
+
+void function_preprocess(function fn) {
+    ether e = fn->mod;
+    if (eq(fn->name, "run")) {
+        br();
+    }
+    int              n_args    = len(fn->args);
+    LLVMTypeRef*     arg_types = calloc(4 + (fn->target != null) + n_args, sizeof(LLVMTypeRef));
+    int              index     = 0;
+    model            top       = fn->init_top;
+
+    if (fn->record) {
+        verify (isa(fn->record) == typeid(structure) || 
+                isa(fn->record) == typeid(class),
+            "target [incoming] must be record type (struct / class) -- it is then made pointer-to record");
+        fn->target = elookup(fn->record->name->chars);
+        arg_types[index++] = fn->target->mdl->type;
+        if (eq(fn->name, "run")) {
+            br();
+            // so the function args were being registered to entire struct 
+            // values prior; with the base membership defined to make our 
+            // 'record' a reference to struct, we are utilizing 'model' to its potential
+        }
+    }
+
+    print("function %o", fn->name);
+    verify(isa(fn->args) == typeid(arguments), "arg mismatch");
+    
+    each(fn->args, member, arg) {
+        verify (arg->mdl->type, "no LLVM type found for arg %o", arg->name);
+        arg_types[index++]   = arg->mdl->type;
+        print("arg type [%i] = %s", index - 1, LLVMPrintTypeToString(arg->mdl->type));
+    }
+
+    if (eq(fn->name, "run"))
+        br();
+
+    /// this is the first user of an object model, so we will also need to initialize any object model
+    /// that has runtime types.  when the main code runs, we will need to load our module initializer
+    /// 
+    if (!fn->record && eq(fn->name, "main") && index == 1 && len(fn->args) == 1) {
+        member arg = get(fn->args, 0);
+        if (instanceof(arg->mdl->src, record)) {
+            fn->main_member = hold(arg); /// this one we'll alloc ourselves if its there
+            clear(fn->args->args);
+            member arg0 = emember(elookup("int")->mdl,     "argc");
+            member arg1 = emember(elookup("symbols")->mdl, "argv");
+            push(fn->args, arg0);
+            push(fn->args, arg1);
+            arg_types[0] = arg0->mdl->type;
+            arg_types[1] = arg1->mdl->type;
+            index = 2; /// our main will be rtype main[int, symbol]
+            print("we need to inject some operations at the start of the function block");
+        }
+    }
+
+    fn->type  = LLVMFunctionType(fn->rtype->type, arg_types, index, fn->va_args);
+    fn->value = LLVMAddFunction(e->module, fn->name->chars, fn->type);
+    print("preprocess function: %o, type: %p, value: %p (va_args: %i)", fn->name, fn->type, fn->value, fn->va_args);
+    //free(arg_types); (llvm seems to not copy these)
+
+    LLVMSetLinkage(fn->value,
+        fn->access == interface_intern ? LLVMInternalLinkage : LLVMExternalLinkage);
+
+    if (fn->process)
+        function_start(fn);
 }
 
 void function_finalize(function fn) {
@@ -582,13 +618,14 @@ void record_init(record rec) {
 member member_resolve(member mem, string name) {
     ether  e   = mem->mod;
     i64  index = 0;
-    pairs(mem->mdl->members, i) {
+    model base = mem->mdl->ref ? mem->mdl->src : mem->mdl; // needs to support more than indirection here
+    pairs(base->members, i) {
         if (compare(i->key, name) == 0) {
             member schema = i->value;
             member res = emember(schema->mdl, name->chars);
             function fn = instanceof(schema->mdl, function);
             res->value = fn ? fn->value : LLVMBuildStructGEP2(
-                    e->builder, mem->mdl->type, mem->value, index, "resolve");
+                    e->builder, base->type, mem->value, index, "resolve");
             /// store what target this member came from
             res->target = mem;
             if (fn)
@@ -597,7 +634,7 @@ member member_resolve(member mem, string name) {
         }
         index++;
     }
-    fault("member %o not found in type %o", name, mem->mdl->name);
+    fault("member %o not found in type %o", name, base->name);
     return null;
 }
 
@@ -701,8 +738,8 @@ static node operand(ether e, object op) {
 
 model model_alias(model src, string name, reference r, array shape) {
     record rec = instanceof(src, record);
-    if (rec)
-        model_process_finalize(rec);
+    if (rec && !rec->process)
+        model_process_finalize(rec); /// finalize imported types
     model  ref = new(model,
         mod,    src->mod,
         name,   name,
@@ -710,6 +747,74 @@ model model_alias(model src, string name, reference r, array shape) {
         ref,    r,
         src,   src);
     return ref;
+}
+
+//i_method  (X,Y, public,     node,       map,        object) \
+//i_method  (X,Y, public,     node,       object,     model,  object) \
+
+// this arg is constant for now, with values that are nodes
+// we will want this to work with operand-behavior once we allow maps with operand
+node ether_object(ether e, model m, object args) {
+    map imap = instanceof(args, map);
+    if (imap)
+    pairs(imap, i) {
+        string arg_name  = instanceof(i->key, string);
+        node   arg_value = instanceof(i->value, node);
+    }
+
+    /// initialization happens similarly to how we handle 
+}
+
+node ether_allocate(ether e, model mdl) {
+    LLVMValueRef v = LLVMBuildAlloca(e->builder, mdl->type, "alloc-mdl");
+    return value(mdl->type, v);
+}
+
+LLVMValueRef get_memset_function(ether e) {
+    // Parameters for memset: void* (i8*), int (i8), size_t (i64)
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8TypeInContext(e->module_ctx), 0),  // void* (i8*)
+        LLVMInt8TypeInContext(e->module_ctx),                      // int (i8)
+        LLVMInt64TypeInContext(e->module_ctx)                     // size_t (i64)
+    };
+
+    LLVMTypeRef memset_type = LLVMFunctionType(
+        LLVMVoidTypeInContext(e->module_ctx),  // Return type (void)
+        param_types,                           // Parameters
+        3,                                     // Number of parameters
+        false                                  // Not variadic
+    );
+
+    // Check if memset is already declared, if not, declare it
+    LLVMValueRef memset_func = LLVMGetNamedFunction(e->module, "memset");
+    if (!memset_func) {
+        memset_func = LLVMAddFunction(e->module, "memset", memset_type);
+    }
+
+    return memset_func;
+}
+
+node ether_zero(ether e, node n) {
+    model      mdl = n->mdl;
+    LLVMValueRef v = n->value;
+    if (LLVMGetTypeKind(mdl->type) == LLVMPointerTypeKind)
+        LLVMBuildStore(e->builder, LLVMConstNull(mdl->type), v);
+    else {
+        // For non-pointer types, initialize the memory to zero
+        LLVMTypeRef int8_type = LLVMInt8TypeInContext(LLVMGetTypeContext(mdl->type)); // i8 type for memset
+        LLVMValueRef zero_value = LLVMConstInt(int8_type, 0, 0);  // Constant zero (i8 type)
+        
+        // Get the size of the type in bytes (mdl->size provides this)
+        LLVMValueRef size_value = LLVMConstInt(LLVMInt64TypeInContext(LLVMGetTypeContext(mdl->type)), mdl->size, 0);
+
+        // Use memset-like behavior: store zeros in the allocated memory
+        LLVMValueRef memset_func = get_memset_function(e);  // Assume you have a reference to memset or similar
+        LLVMValueRef args[] = {v, zero_value, size_value};  // Arguments for memset (ptr, value, size)
+
+        // Call memset (or equivalent) to fill the allocated memory with zeros
+        LLVMBuildCall2(e->builder, LLVMTypeOf(memset_func), memset_func, args, 3, "");
+    }
+    return n; // return the same node, right?
 }
 
 node ether_if_else(ether e, array conds, array exprs,
@@ -942,6 +1047,10 @@ void ether_define_primitive(ether e) {
     set(e->base, str("symbol"), symbol);
     ether_push_model(e, symbol);
 
+    model symbols = model_alias(symbol, str("symbols"), reference_constant, null);
+    set(e->base, str("symbols"), symbols);
+    ether_push_model(e, symbols);
+
     model _char = model_alias(i32, str("char"), 0, null);
     set(e->base, str("char"), _char);
     ether_push_model(e, _char);
@@ -971,11 +1080,21 @@ member ether_lookup(ether e, string name) {
     return null;
 }
 
-model ether_push(ether e, model mdl_ctx) {
-    verify(mdl_ctx, "no context given");
-    push(e->lex, mdl_ctx);
-    e->top = mdl_ctx;
-    return mdl_ctx;
+model ether_push(ether e, model mdl) {
+    verify(mdl, "no context given");
+    push(e->lex, mdl);
+    e->top = mdl;
+    function fn = instanceof(mdl, function);
+    if (fn) {
+        LLVMPositionBuilderAtEnd(e->builder, fn->entry);
+        if (LLVMGetBasicBlockTerminator(fn->entry) == NULL) {
+            // set debug location
+            LLVMMetadataRef loc = LLVMDIBuilderCreateDebugLocation(
+                e->module_ctx, fn->name->line, 0, fn->scope, NULL);
+            LLVMSetCurrentDebugLocation2(e->builder, loc);
+        }
+    } 
+    return mdl;
 }
 
 
@@ -1675,9 +1794,7 @@ void ether_build(ether e) {
         if (isa(f) == typeid(function)) {
             function fn = f;
             if (fn->process) {
-                LLVMPositionBuilderAtEnd(e->builder, fn->entry);
                 push(e, fn);
-                ether_set_token(e, fn->name);
                 invoke(fn->process, f);
                 pop(e);
             }

@@ -107,6 +107,7 @@ declare_mod(arguments, model)
     i_prop(X,Y, public,     model,                  record) \
     i_prop(X,Y, public,     interface,              access) \
     i_prop(X,Y, public,     member,                 target) \
+    i_prop(X,Y, public,     member,                 main_member) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
     i_prop(X,Y, intern,     LLVMValueRef,           value) \
     i_override(X,Y, method, init) \
@@ -180,6 +181,7 @@ declare_class(node)
     i_prop    (X,Y, public,     interface,              access) \
     i_prop    (X,Y, public,     member,                 target) \
     i_prop    (X,Y, public,     bool,                   is_static) \
+    i_prop    (X,Y, public,     bool,                   is_inlay) \
     i_prop    (X,Y, public,     bool,                   is_const) \
     i_prop    (X,Y, public,     bool,                   is_assigned) \
     i_prop    (X,Y, public,     bool,                   is_type) \
@@ -245,6 +247,9 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     node,       sub,        object, object) \
     i_method  (X,Y, public,     node,       mul,        object, object) \
     i_method  (X,Y, public,     node,       div,        object, object) \
+    i_method  (X,Y, public,     node,       allocate,   model) \
+    i_method  (X,Y, public,     node,       zero,       node) \
+    i_method  (X,Y, public,     node,       object,     model,  object) \
     i_method  (X,Y, public,     node,       assign,     node,   object) \
     i_method  (X,Y, public,     node,       assign_add, node,   object) \
     i_method  (X,Y, public,     node,       assign_sub, node,   object) \
