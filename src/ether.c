@@ -1023,6 +1023,7 @@ model ether_base_model(ether e, symbol name, AType native) {
     return mdl;
 }
 
+/// A-type must be read
 void ether_define_primitive(ether e) {
     e->base = new(map, hsize, 64);
     model none = ether_base_model(e, "void", typeid(none));
