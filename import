@@ -1,5 +1,5 @@
-A 		https://github.com/ar-visions/A 		main
-llvm 	https://github.com/llvm/llvm-project 	3b5b5c1
+A 	https://github.com/ar-visions/A 		main
+llvm 	https://github.com/ar-visions/llvm-project 	d37feb7
 	-S ../llvm
 	-G Ninja 
 	-DLLVM_ENABLE_ASSERTIONS=ON
