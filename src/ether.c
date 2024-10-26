@@ -38,11 +38,12 @@ typedef LLVMMetadataRef LLVMScope;
 
 member ether_lookup(ether e, string name);
 
-void ether_push_model(ether e, model mdl) {
+member ether_push_model(ether e, model mdl) {
     member mem   = emember (mdl, mdl->name->chars);
     mem->is_func = inherits(mdl, function);
     mem->is_type = !mem->is_type;
     set(e->top->members, str(mdl->name->chars), mem);
+    return mem;
 }
 
 void ether_push_member(ether e, member mem) {
@@ -101,7 +102,7 @@ void init() {
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
 
-    print("ether: LLVM Version: %d.%d.%d",
+    log("LLVM-Version", "%d.%d.%d",
         LLVM_VERSION_MAJOR,
         LLVM_VERSION_MINOR,
         LLVM_VERSION_PATCH);
@@ -201,7 +202,8 @@ void model_init(model mdl) {
         test++;
     }
 
-    mdl->members = new(map, hsize, 32);
+    if (!mdl->members)
+        mdl->members = new(map, hsize, 32);
 
     if (!mdl->src) {
         //verify (!e, "only ether model does not have 'src'");
@@ -341,14 +343,12 @@ void function_start(function fn) {
         set(fn->members, str(arg->name->chars), arg);
     }
 
-    /// look chatGPT, this is how we want to code in our functions inside of ether/silver
     if (fn->main_member) {
         // we have fn->main_member we want to push to context
         push(e, fn);
 
-        /// lets go with app as a name
-        /// i think its best to do delayed placement on this main member
-        /// this way is a bit more straight forward though
+        ether_push_member(e, fn->main_member);
+        
         member main_member = emember(fn->main_member->mdl, fn->main_member->name->chars);
         node   n_create    = ecall(allocate, main_member->mdl->src); /// call allocate, does not call init yet!
         ecall(zero, n_create);
@@ -360,6 +360,7 @@ void function_start(function fn) {
 
         model  i64         = emodel("int");
         node   arg_i       = ecall(allocate, i64);
+
 
 
         /// can we not have a 'create-object' in our design-time api lol
@@ -391,13 +392,17 @@ void function_preprocess(function fn) {
         }
     }
 
-    print("function %o", fn->name);
+    //print("function %o", fn->name);
     verify(isa(fn->args) == typeid(arguments), "arg mismatch");
     
     each(fn->args, member, arg) {
         verify (arg->mdl->type, "no LLVM type found for arg %o", arg->name);
         arg_types[index++]   = arg->mdl->type;
-        print("arg type [%i] = %s", index - 1, LLVMPrintTypeToString(arg->mdl->type));
+        if (is_void(arg->mdl)) {
+            int test = 1;
+            test++;
+        }
+        //print("arg type [%i] = %s", index - 1, LLVMPrintTypeToString(arg->mdl->type));
     }
 
     if (eq(fn->name, "run"))
@@ -424,7 +429,7 @@ void function_preprocess(function fn) {
 
     fn->type  = LLVMFunctionType(fn->rtype->type, arg_types, index, fn->va_args);
     fn->value = LLVMAddFunction(e->module, fn->name->chars, fn->type);
-    print("preprocess function: %o, type: %p, value: %p (va_args: %i)", fn->name, fn->type, fn->value, fn->va_args);
+    //print("preprocess function: %o, type: %p, value: %p (va_args: %i)", fn->name, fn->type, fn->value, fn->va_args);
     //free(arg_types); (llvm seems to not copy these)
 
     LLVMSetLinkage(fn->value,
@@ -543,10 +548,10 @@ void record_finalize(record rec) {
 
             LLVMTargetDataRef target_data = rec->mod->target_data;
             symbol cs = LLVMPrintTypeToString(mem->mdl->type);
-            print("type for %o %o = %s", rec->name, mem->name, cs);
+            //print("type for %o %o = %s", rec->name, mem->name, cs);
             int sz1 = LLVMABISizeOfType(target_data, mem->mdl->type);
             member_debug[index++] = mem->debug;
-            print("member on %o:%o %i", rec->name, i->key, (int)sz1);
+            //print("member on %o:%o %i", rec->name, i->key, (int)sz1);
             if (!sz_largest || sz1 > sz_largest) {
                 largest = mem;
                 sz_largest = sz1;
@@ -586,6 +591,13 @@ void record_finalize(record rec) {
         LLVMMetadataReplaceAllUsesWith(prev, rec->debug);
     }
     rec->process = null;
+
+    member mdl_member = elookup("A_TYPE");
+    if (mdl_member) {
+        member intern_v = get(mdl_member->mdl->members, str("A_TYPE_INTERN"));
+        int test = 0;
+        test++;
+    }
 }
 
 #define LLVMDwarfTag(tag) (tag)
@@ -622,20 +634,33 @@ member member_resolve(member mem, string name) {
     pairs(base->members, i) {
         if (compare(i->key, name) == 0) {
             member schema = i->value;
+            if (schema->is_const) {
+                return schema; /// for enum members, they are const integer; no target stored but we may init that
+            }
             member res = emember(schema->mdl, name->chars);
-            function fn = instanceof(schema->mdl, function);
-            res->value = fn ? fn->value : LLVMBuildStructGEP2(
-                    e->builder, base->type, mem->value, index, "resolve");
-            /// store what target this member came from
-            res->target = mem;
-            if (fn)
-                res->is_func = true;
+            if (!res->value) {
+                function fn = instanceof(schema->mdl, function);
+                res->value = fn ? fn->value : LLVMBuildStructGEP2(
+                        e->builder, base->type, mem->value, index, "resolve");
+                /// store what target this member came from
+                res->target = mem;
+                if (fn)
+                    res->is_func = true;
+            }
             return res;
         }
         index++;
     }
     fault("member %o not found in type %o", name, base->name);
     return null;
+}
+
+node ether_operand(ether e, object op);
+
+void member_set_value(member mem, object value) {
+    node n = operand(mem->mod, value);
+    mem->mdl   = n->mdl;
+    mem->value = n->value; /// todo: verify its constant
 }
 
 void member_set_debug(member mem) {
@@ -710,25 +735,39 @@ void ret_init(ret op) {
 
 #define value(m,vr) new(node, mod, e, value, vr, mdl, m)
 
+#define int_value(b,l) \
+    new(node, mod, e, \
+        literal, l, mdl, emodel(stringify(i##b)), \
+        value, LLVMConstInt(emodel(stringify(i##b))->type, *(i##b*)l, 0))
 
-static node operand(ether e, object op) {
+#define uint_value(b,l) \
+    new(node, mod, e, \
+        literal, l, mdl, emodel(stringify(u##b)), \
+        value, LLVMConstInt(emodel(stringify(u##b))->type, *(u##b*)l, 0))
+
+#define real_value(b,l) \
+    new(node, mod, e, \
+        literal, l, mdl, emodel(stringify(f##b)), \
+        value, LLVMConstReal(emodel(stringify(f##b))->type, *(f##b*)l))
+
+node ether_operand(ether e, object op) {
     if (!op) return value(emodel("void"), null);
 
          if (inherits(op,   node)) return op;
-    else if (inherits(op,     u8)) return value(emodel("u8"),  LLVMConstInt (emodel( "u8")->type, *( u8*)op, 0));
-    else if (inherits(op,    u16)) return value(emodel("u16"), LLVMConstInt (emodel("u16")->type, *(u16*)op, 0));
-    else if (inherits(op,    u32)) return value(emodel("u32"), LLVMConstInt (emodel("u32")->type, *(u32*)op, 0));
-    else if (inherits(op,    u64)) return value(emodel("u64"), LLVMConstInt (emodel("u64")->type, *(u64*)op, 0));
-    else if (inherits(op,     i8)) return value(emodel("i8"),  LLVMConstInt (emodel( "i8")->type, *( i8*)op, 0));
-    else if (inherits(op,    i16)) return value(emodel("i16"), LLVMConstInt (emodel("i16")->type, *(i16*)op, 0));
-    else if (inherits(op,    i32)) return value(emodel("i32"), LLVMConstInt (emodel("i32")->type, *(i32*)op, 0));
-    else if (inherits(op,    i64)) return value(emodel("i64"), LLVMConstInt (emodel("i64")->type, *(i64*)op, 0));
-    else if (inherits(op,    f32)) return value(emodel("f32"), LLVMConstReal(emodel("f32")->type, *(f32*)op));
-    else if (inherits(op,    f64)) return value(emodel("f64"), LLVMConstReal(emodel("f64")->type, *(f64*)op));
+    else if (inherits(op,     u8)) return uint_value(8,  op);
+    else if (inherits(op,    u16)) return uint_value(16, op);
+    else if (inherits(op,    u32)) return uint_value(32, op);
+    else if (inherits(op,    u64)) return uint_value(64, op);
+    else if (inherits(op,     i8)) return  int_value(8,  op);
+    else if (inherits(op,    i16)) return  int_value(16, op);
+    else if (inherits(op,    i32)) return  int_value(32, op);
+    else if (inherits(op,    i64)) return  int_value(64, op);
+    else if (inherits(op,    f32)) return real_value(32, op);
+    else if (inherits(op,    f64)) return real_value(64, op);
     else if (inherits(op, string)) {
         LLVMTypeRef  gs      = LLVMBuildGlobalStringPtr(e->builder, ((string)op)->chars, "chars");
-        LLVMValueRef cast_i8 = LLVMBuildBitCast(e->builder, gs, LLVMPointerType(LLVMInt8Type(), 0), "cast_i8*");
-        return value(emodel("i8"), cast_i8);
+        LLVMValueRef cast_i8 = LLVMBuildBitCast(e->builder, gs, LLVMPointerType(LLVMInt8Type(), 0), "cast_symbol");
+        return new(node, mod, e, value, cast_i8, mdl, emodel("symbol"), literal, op);
     }
     else {
         error("unsupported type in ether_add");
@@ -763,6 +802,7 @@ node ether_object(ether e, model m, object args) {
     }
 
     /// initialization happens similarly to how we handle 
+    return null;
 }
 
 node ether_allocate(ether e, model mdl) {
@@ -873,8 +913,23 @@ node ether_addr_of(ether e, node expr, model mdl) {
         mdl,   ref);
 }
 
+bool is_const_v(LLVMValueRef val) {
+    if (!LLVMIsConstant(val))
+        return false;
+    
+    LLVMTypeRef type = LLVMTypeOf(val);
+    if (LLVMGetTypeKind(type) == LLVMPointerTypeKind)
+        return false;
+    
+    return true;
+}
+
 node ether_load(ether e, node n, model mdl, object offset) {
     model mdl_result = mdl ? mdl : n->mdl;
+
+    // constants do not require loading
+    if (is_const_v(n->value))
+        return n;
 
     // address with offset applied
     // use GEP2 (get element pointer... 2) to calculate the address with offset
@@ -883,6 +938,11 @@ node ether_load(ether e, node n, model mdl, object offset) {
     if (offset) {
         node o = operand(e, offset);
         ptr = LLVMBuildGEP2(e->builder, LLVMInt8Type(), n->value, &o->value, 1, "ptr");
+        // LLVMPointerType(mdl_result->type, 0)
+        LLVMTypeRef ptype = is_ref(mdl_result) ?
+            mdl_result->type :
+            LLVMPointerType(mdl_result->type, 0);
+        ptr = LLVMBuildBitCast(e->builder, ptr, ptype, "ptr_cast");
     } else
         ptr = n->value;
     
@@ -955,7 +1015,9 @@ node ether_convert(ether e, node expr, model rtype) {
     else
         fault("unsupported cast");
 
-    return value(T,V);
+    node res = value(T,V);
+    res->literal = hold(expr->literal);
+    return res;
 }
 
 model ether_context_model(ether e, AType type) {
@@ -1060,8 +1122,6 @@ void ether_define_primitive(ether e) {
     set(e->base, str("int"), _int);
     ether_push_model(e, _int);
 
-    print("int = %s", LLVMPrintTypeToString(_int->type));
-
     model _uint = model_alias(u64, str("uint"), 0, null);
     set(e->base, str("uint"), _uint);
     ether_push_model(e, _uint);
@@ -1140,12 +1200,21 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
         base = clang_Type_getNamedType(base);
 
     switch (base.kind) {
+        case CXType_Enum: {
+            CXString n = clang_getTypeSpelling(base);
+            symbol ename = clang_getCString(n);
+            t = str(ename);
+            if (call(t, has_prefix, "enum "))
+                t = mid(t, 5, len(t) - 5);
+            clang_disposeString(n);
+            break;
+        }
         case CXType_Typedef: {
             CXString n = clang_getTypedefName(base);
             symbol  cs = clang_getCString(n);
             t = str(cs);
             clang_disposeString(n);
-            printf("typedef name: %s\n", t->chars);
+            //printf("typedef name: %s\n", t->chars);
             if (!emodel(cs)) {
                 CXType canonicalType = clang_getCanonicalType(base);
                 model  resolved_mdl  = cx_to_model(e, canonicalType, name, arg_rules);
@@ -1243,6 +1312,23 @@ enum CXChildVisitResult visit_member(CXCursor cursor, CXCursor parent, CXClientD
     return CXChildVisit_Recurse;
 }
 
+enum CXChildVisitResult visit_enum_constant(CXCursor cursor, CXCursor parent, CXClientData client_data) {
+    if (clang_getCursorKind(cursor) == CXCursor_EnumConstantDecl) {
+        model         def = (model)client_data;
+        ether           e = def->mod;
+        CXString spelling = clang_getCursorSpelling(cursor);
+        const char*  name = clang_getCString(spelling);
+        long long   value = clang_getEnumConstantDeclValue(cursor);
+        member        mem = emember(emodel("i32"), name);
+        
+        call(mem, set_value, A_i32((i32)value)); /// this should set constant since it should know
+        mem->is_const     = true;
+        set(def->members, str(name), mem);
+        clang_disposeString(spelling);
+    }
+    return CXChildVisit_Continue;
+}
+
 enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData client_data) {
     ether       e = (ether)client_data;
     CXString  fcx = clang_getCursorSpelling(cursor);
@@ -1257,7 +1343,23 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
     verify (!current, "duplicate definition when importing: %o", name);
     
     switch (k) {
+        case CXCursor_EnumDecl: {
+            def = new(enumerable,  // or create a specific enum type
+                mod,          e,
+                from_include, e->current_include,
+                size,         4,
+                name,         name);
+            
+            // Visit enum constants
+            clang_visitChildren(cursor, visit_enum_constant, def);
+            break;
+        }
         case CXCursor_FunctionDecl: {
+            if (eq(name, "A_member")) {
+                int test = 1;
+                test++;
+            }
+
             CXType   cx_rtype = clang_getCursorResultType(cursor);
             model    rtype    = cx_to_model(e, cx_rtype, null, true);
             int      n_args   = clang_Cursor_getNumArguments(cursor);
@@ -1265,7 +1367,10 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
 
             //if (!eq(name, "printf"))
             //    return CXChildVisit_Recurse;
-            
+            if (eq(name, "A_member")) {
+                int test = 1;
+                test++;
+            }
             for (int i = 0; i < n_args; i++) {
                 CXCursor arg_cursor = clang_Cursor_getArgument(cursor, i);
                 CXString pcx        = clang_getCursorSpelling (arg_cursor);
@@ -1273,11 +1378,6 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
                 CXType   arg_cxtype = clang_getCursorType     (arg_cursor);
                 CXString pcx_type   = clang_getTypeSpelling   (arg_cxtype);
                 symbol   arg_type   = clang_getCString        (pcx_type);
-
-                if (eq(name, "qecvt")) {
-                    int test = 1;
-                    test++;
-                }
                 model    arg_mdl    = cx_to_model(e, arg_cxtype, arg_name, true);
 
                 member   mem = emember(arg_mdl, arg_name);
@@ -1293,6 +1393,19 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
                 va_args,        is_var,
                 rtype,          rtype,
                 args,           args);
+
+            /// read format attributes from functions, through llvm contribution
+            /// PR #3.5k in queue, but its useful for knowing context in formatter functions
+            CXCursor format = clang_Cursor_getFormatAttr(cursor);
+            if (!clang_Cursor_isNull(format)) {
+                CXString f_type  = clang_FormatAttr_getType     (format);
+                symbol   f_stype = clang_getCString             (f_type);
+                unsigned f_index = clang_FormatAttr_getFormatIdx(format);
+                unsigned f_first = clang_FormatAttr_getFirstArg (format);
+                ((function)def)->format = new(format_attr,
+                    type, str(f_stype), format_index, f_index, arg_index, f_first);
+                clang_disposeString(f_type);
+            }
             break;
         }
         case CXCursor_StructDecl: {
@@ -1323,8 +1436,9 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
         default:
             break;
     }
-    if (def)
+    if (def) {
         ether_push_model(e, def);
+    }
     clang_disposeString(fcx);
     return CXChildVisit_Recurse;
 }
@@ -1337,22 +1451,27 @@ void ether_include(ether e, string include) {
         include_path->chars,
         "/usr/include"
     };
-    for (int i = 0; i < sizeof(ipaths) / sizeof(symbol); i++) {
-        path r = form(path, "%s/%o", ipaths[i], include);
-        if (exists(r)) {
-            full_path = r;
-            break;
-        }
-        path r2 = form(path, "%s/%o.h", ipaths[i], include);
-        if (exists(r2)) {
-            full_path = r2;
-            break;
+    symbol templates[3] = {
+        "%s/%o-flat", /// this is how we read our A-types without a fancy pre-processor
+        "%s/%o",
+        "%s/%o.h"
+    };
+    bool br = false;
+    for (int i = 0; !br && i < sizeof(ipaths) / sizeof(symbol); i++) {
+        for (int ii = 0; ii < 3; ii++) {
+            path r0 = form(path, templates[ii], ipaths[i], include);
+            if (exists(r0)) {
+                full_path = r0;
+                br = true;
+                break;
+            }
         }
     }
     verify (full_path, "include path not found for %o", include);
     CXIndex index = clang_createIndex(0, 0);
+    const char* args[] = {"-x", "c-header"}; /// allow 'A' to parse as a 
     CXTranslationUnit unit = clang_parseTranslationUnit(
-        index, full_path->chars, NULL, 0, NULL, 0, CXTranslationUnit_None);
+        index, full_path->chars, args, 2, NULL, 0, CXTranslationUnit_None);
 
     verify(unit, "unable to parse translation unit %o", include);
     
@@ -1384,20 +1503,14 @@ void ether_write(ether e) {
     cstr err = NULL;
     if (LLVMVerifyModule(e->module, LLVMPrintMessageAction, &err))
         fault("error verifying module: %s", err);
-    else
-        print("module verified");
 
     path ll = form(path, "%o.ll", e->name);
     path bc = form(path, "%o.bc", e->name);
-    if (!LLVMPrintModuleToFile(e->module, cs(ll), &err))
-        print("IR: %o", ll);
-    else
+    if (LLVMPrintModuleToFile(e->module, cs(ll), &err))
         fault("LLVMPrintModuleToFile failed");
 
     if (LLVMWriteBitcodeToFile(e->module, cs(bc)) != 0)
         fault("LLVMWriteBitcodeToFile failed");
-    else
-        print("bitcode: %o", bc);
 }
 
 
@@ -1443,6 +1556,7 @@ void ether_llvm_init(ether e) {
 
 /// we may have a kind of 'module' given here; i suppose instanceof(ether) is enough
 void ether_init(ether e) {
+    e->with_debug = true;
     ether_llvm_init(e);
     e->lex = new(array, alloc, 32);
     push(e, e);
@@ -1598,6 +1712,23 @@ node ether_freturn(ether e, object o) {
     return value(fn->rtype, LLVMBuildRet(e->builder, conv->value));
 }
 
+model formatter_type(ether e, cstr input) {
+    cstr p = input;
+    // skip flags/width/precision
+    while (*p && strchr("-+ #0123456789.", *p)) p++;
+    switch (*p) {
+        case 'd': case 'i':
+                  return emodel("i32"); 
+        case 'u': return emodel("u32");
+        case 'f': case 'F': case 'e': case 'E': case 'g': case 'G':
+                  return emodel("f64");
+        case 's': return emodel("symbol");
+        case 'p': return model_alias(emodel("i8"), null, reference_pointer, null);
+    }
+    fault("formatter implementation needed");
+    return null;
+}
+
 node ether_fcall(ether e, member fn_mem, node target, array args) {
     verify(isa(fn_mem->mdl) == typeid(function), "model provided is not function");
     int n_args = len(args);
@@ -1613,38 +1744,63 @@ node ether_fcall(ether e, member fn_mem, node target, array args) {
 
     if (target)
         arg_values[index++] = target->value;
+
+    /// so know if we have a literal string or not
+    /// if we dont, then how on earth are we supposed to know what to do with args lol
+    /// i think we dont allow it..
+    int fmt_idx  = fn->format ? fn->format->format_index - 1 : -1;
+    int arg_idx  = fn->format ? fn->format->arg_index    - 1 : -1;
     each (args, object, value) {
+        if (index == arg_idx) break;
+        if (index == fmt_idx) {
+            index++;
+            continue;
+        }
+
         member    f_arg = get(fn->args, index);
         AType     vtype = isa(value);
         node      op    = operand(e, value);
         node      conv  = ether_convert(e, op, f_arg ? f_arg->mdl : op->mdl);
+        
         LLVMValueRef vr = arg_values[index] = conv->value;
-        print("ether_fcall: %o arg[%i]: vr: %p, type: %s", fn_mem->name, index, vr, LLVMPrintTypeToString(LLVMTypeOf(vr)));
+        //print("ether_fcall: %o arg[%i]: vr: %p, type: %s", fn_mem->name, index, vr, LLVMPrintTypeToString(LLVMTypeOf(vr)));
         index++;
     }
+    int istart = index;
+
+    if (fn->format) {
+        AType a0 = isa(args->elements[fmt_idx]);
+        node   fmt_node = instanceof(args->elements[fmt_idx], node);
+        string fmt_str  = instanceof(fmt_node->literal, string);
+        verify(fmt_str, "expected string literal at index %i for format-function: %o", fmt_idx, fn->name);
+        arg_values[fmt_idx] = fmt_node->value;
+        // process format specifiers and map to our types
+        int soft_args = 0;
+        cstr p = fmt_str->chars;
+        // we will have to convert %o to %s, unless we can be smart with %s lol.
+        // i just dont like how its different from A-type
+        // may simply be fine to use %s for string, though.  its natural to others
+        // alternately we may copy the string from %o to %s.
+        while  (p[0]) {
+            if (p[0] == '%' && p[1] != '%') {
+                model arg_type = formatter_type(e, &p[1]);
+                node  arg      = operand(e, args->elements[arg_idx + soft_args]);
+                node  conv     = ether_convert(e, arg, arg_type); 
+                arg_values[arg_idx + soft_args] = conv->value;
+                soft_args++;
+                index    ++;
+                p += 2;
+            } else
+                p++;
+
+        }
+        verify((istart + soft_args) == len(args), "formatter args mismatch");
+    }
+    
     bool is_void_ = is_void(fn->rtype);
     LLVMValueRef R = LLVMBuildCall2(e->builder, F, V, arg_values, index, is_void_ ? "" : "call");
     free(arg_values);
     return value(fn->rtype, R);
-}
-
-node ether_literal(ether e, object n) {
-    AType ntype = isa(n);
-    if (ntype == typeid(bool)) return value(emodel("bool"), LLVMConstInt( LLVMInt1Type(), *(bool*)n, 0));
-    if (ntype == typeid(i8))   return value(emodel("i8"),   LLVMConstInt( LLVMInt8Type(),  *( i8*)n, 0));
-    if (ntype == typeid(i16))  return value(emodel("i16"),  LLVMConstInt(LLVMInt16Type(),  *(i16*)n, 0));
-    if (ntype == typeid(i32))  return value(emodel("i32"),  LLVMConstInt(LLVMInt32Type(),  *(i32*)n, 0));
-    if (ntype == typeid(i64))  return value(emodel("i64"),  LLVMConstInt(LLVMInt64Type(),  *(i64*)n, 0));
-    if (ntype == typeid(u8))   return value(emodel("u8"),   LLVMConstInt( LLVMInt8Type(),  *( u8*)n, 0));
-    if (ntype == typeid(u16))  return value(emodel("u16"),  LLVMConstInt(LLVMInt16Type(),  *(u16*)n, 0));
-    if (ntype == typeid(u32))  return value(emodel("u32"),  LLVMConstInt(LLVMInt32Type(),  *(u32*)n, 0));
-    if (ntype == typeid(u64))  return value(emodel("u64"),  LLVMConstInt(LLVMInt64Type(),  *(u64*)n, 0));
-    if (ntype == typeid(f32))  return value(emodel("f32"),  LLVMConstInt(LLVMFloatType(),  *(f32*)n, 0));
-    if (ntype == typeid(f64))  return value(emodel("f64"),  LLVMConstInt(LLVMDoubleType(), *(f64*)n, 0));
-    if (ntype == typeid(f128))  return value(emodel("f128"),  LLVMConstInt(LLVMFP128Type(), *(f128*)n, 0));
-    if (ntype == typeid(string))
-        return value(emodel("symbol"), LLVMBuildGlobalStringPtr(e->builder, ((string)n)->chars, "str"));
-    fault ("literal not handled: %s", ntype->name);
 }
 
 node ether_op(ether e, OPType optype, string N, object L, object R) {
@@ -1923,6 +2079,7 @@ sz      arguments_len   (arguments a)               { return len(a->args); }
 define_enum      (interface)
 define_enum      (reference)
 define_class     (model)
+define_class     (format_attr)
 
 // we need a place to tag as deferred registration
 // we parse args before we have the identity of the function type
@@ -1931,6 +2088,7 @@ define_mod       (arguments,   model)
 define_mod       (function,    model)
 define_mod       (record,      model)
 define_mod       (uni,         record)
+define_mod       (enumerable,  record)
 define_mod       (structure,   record)
 define_mod       (class,       record)
 define_mod       (ether,       model)

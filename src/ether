@@ -98,6 +98,16 @@ declare_class(model)
 declare_mod(arguments, model)
 
 
+#define format_attr_schema(X,Y) \
+    i_prop(X,Y, required, string, type) \
+    i_prop(X,Y, public,   i32,    format_index) \
+    i_prop(X,Y, public,   i32,    arg_index)
+#ifndef format_attr_intern
+#define format_attr_intern isize(format_attr)
+#endif
+declare_class(format_attr)
+
+
 #define function_schema(X,Y) \
     i_prop(X,Y, public,     bool,                   is_instance) \
     i_prop(X,Y, public,     bool,                   is_cast) \
@@ -108,6 +118,7 @@ declare_mod(arguments, model)
     i_prop(X,Y, public,     interface,              access) \
     i_prop(X,Y, public,     member,                 target) \
     i_prop(X,Y, public,     member,                 main_member) \
+    i_prop(X,Y, intern,     format_attr,            format) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
     i_prop(X,Y, intern,     LLVMValueRef,           value) \
     i_override(X,Y, method, init) \
@@ -152,6 +163,12 @@ declare_mod(class, record, model)
 #endif
 declare_mod(structure, record, model)
 
+#define enumerable_schema(X,Y)
+#ifndef enumerable_intern
+#define enumerable_intern
+#endif
+declare_mod(enumerable, record, model)
+
 #define uni_schema(X,Y)
 #ifndef uni_intern
 #define uni_intern
@@ -168,6 +185,7 @@ declare_mod(uni, record, model)
     i_prop    (X,Y, public,     token,                  name) \
     i_prop    (X,Y, public,     ether,                  mod) \
     i_prop    (X,Y, required,   model,                  mdl) \
+    i_prop    (X,Y, public,     object,                 literal) \
     i_prop    (X,Y, public,     num,                    line) \
     i_prop    (X,Y, public,     num,                    column) \
     i_prop    (X,Y, intern,     LLVMValueRef,           value)
@@ -188,7 +206,8 @@ declare_class(node)
     i_prop    (X,Y, public,     bool,                   is_func) \
     i_prop    (X,Y, public,     bool,                   is_arg) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
-    i_method  (X,Y, public,     member,                 resolve, string) \
+    i_method  (X,Y, public,     none,    set_value,     object) \
+    i_method  (X,Y, public,     member,  resolve,       string) \
     i_override(X,Y, method,     init)
 #ifndef member_intern
 #define member_intern isize(member)
@@ -233,6 +252,8 @@ declare_mod(ret, node)
     i_prop    (X,Y, required,   path,                   install) \
     i_prop    (X,Y, public,     bool,                   with_debug) \
     i_method  (X,Y, public,     none,       push_member, member) \
+    i_method  (X,Y, public,     member,     push_model,  model) \
+    i_method  (X,Y, public,     node,       operand,    object) \
     i_method  (X,Y, public,     node,       op,         OPType, string, object, object) \
     i_method  (X,Y, public,     node,       load,       node, model, object) \
     i_method  (X,Y, public,     node,       if_else,    array, array, subprocedure, subprocedure) \
@@ -261,7 +282,6 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     node,       assign_xor, node,   object) \
     i_method  (X,Y, public,     node,       eq,         node, node) \
     i_method  (X,Y, public,     node,       not_eq,     node, node) \
-    i_method  (X,Y, public,     node,       literal,    object) \
     i_method  (X,Y, public,     node,       fcall,      member, node, array) \
     i_method  (X,Y, public,     node,       freturn,    object) \
     i_method  (X,Y, public,     node,       is,         node, object) \
@@ -308,6 +328,7 @@ bool is_signed   (model);
 bool is_unsigned (model);
 bool is_object   (model);
 bool is_class    (model);
+bool is_enumerable(model);
 bool is_struct   (model);
 bool is_ref      (model);
 
