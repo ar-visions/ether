@@ -33,4 +33,4 @@ ether:
 	LLVMX86AsmParser
 	LLVMX86Desc
 	LLVMX86Info
-	libclang.so.18.1.8
+	clang

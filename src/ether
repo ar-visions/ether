@@ -118,6 +118,7 @@ declare_class(format_attr)
     i_prop(X,Y, public,     interface,              access) \
     i_prop(X,Y, public,     member,                 target) \
     i_prop(X,Y, public,     member,                 main_member) \
+    i_prop(X,Y, public,     AFlag,                  function_type) \
     i_prop(X,Y, intern,     format_attr,            format) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
     i_prop(X,Y, intern,     LLVMValueRef,           value) \
@@ -140,6 +141,7 @@ declare_mod(statements, model)
 // for each field, f_* name-bound class, enum or primitive
 #define record_schema(X,Y) \
     i_prop    (X,Y, public, record, parent) \
+    i_prop    (X,Y, public, string, parent_name) \
     i_override(X,Y, method,         finalize) \
     i_override(X,Y, method,         init)
 #ifndef record_intern
@@ -205,6 +207,7 @@ declare_class(node)
     i_prop    (X,Y, public,     bool,                   is_type) \
     i_prop    (X,Y, public,     bool,                   is_func) \
     i_prop    (X,Y, public,     bool,                   is_arg) \
+    i_prop    (X,Y, intern,     i64,                    offset) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
     i_method  (X,Y, public,     none,    set_value,     object) \
     i_method  (X,Y, public,     member,  resolve,       string) \
@@ -250,6 +253,7 @@ declare_mod(ret, node)
     i_prop    (X,Y, required,   path,                   source) \
     i_prop    (X,Y, required,   string,                 lang) \
     i_prop    (X,Y, required,   path,                   install) \
+    i_prop    (X,Y, public,     bool,                   no_build) \
     i_prop    (X,Y, public,     bool,                   with_debug) \
     i_method  (X,Y, public,     none,       push_member, member) \
     i_method  (X,Y, public,     member,     push_model,  model) \
@@ -257,6 +261,7 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     node,       op,         OPType, string, object, object) \
     i_method  (X,Y, public,     node,       load,       node, model, object) \
     i_method  (X,Y, public,     node,       if_else,    array, array, subprocedure, subprocedure) \
+    i_method  (X,Y, public,     node,       ternary,    node, node, node) \
     i_method  (X,Y, public,     node,       convert,    node, model) \
     i_method  (X,Y, public,     node,       addr_of,    node, model) \
     i_method  (X,Y, public,     node,       bitwise_not, node) \
