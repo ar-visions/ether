@@ -1253,7 +1253,7 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
             CXString n = clang_getTypeSpelling(base);
             symbol ename = clang_getCString(n);
             t = str(ename);
-            if (call(t, has_prefix, "enum "))
+            if (starts_with(t, "enum "))
                 t = mid(t, 5, len(t) - 5);
             clang_disposeString(n);
             break;
@@ -1370,7 +1370,7 @@ enum CXChildVisitResult visit_enum_constant(CXCursor cursor, CXCursor parent, CX
         long long   value = clang_getEnumConstantDeclValue(cursor);
         member        mem = emember(emodel("i32"), name);
         
-        call(mem, set_value, A_i32((i32)value)); /// this should set constant since it should know
+        set_value(mem, A_i32((i32)value)); /// this should set constant since it should know
         mem->is_const     = true;
         set(def->members, str(name), mem);
         clang_disposeString(spelling);
