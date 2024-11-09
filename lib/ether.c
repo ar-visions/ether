@@ -515,6 +515,7 @@ void record_finalize(record rec) {
     int              index        = 0;
     member           largest      = null;
     sz               sz_largest   = 0;
+
     each (a, record, r) {
         pairs(r->members, i) {
             member mem = i->value;
@@ -785,6 +786,21 @@ model model_alias(model src, string name, reference r, array shape) {
     record rec = instanceof(src, record);
     if (rec && !rec->process)
         model_process_finalize(rec); /// finalize imported types
+    
+    if (!name && shape) {
+        /// lets create a bindable name here
+        if (len(shape) == 0) {
+            name = format("array_%o", src->name);
+        } else if (len(shape) == 1) {
+            object e0 = first(shape);
+            verify(isa(e0) == typeid(sz), "expected size type in model wrap");
+            sz size = *(sz*)e0;
+            name = format("array_%i_%o", (int)size, src->name);
+        } else {
+            fault("anonymous wrap naming not implemented");
+        }
+    }
+
     model  ref = new(model,
         mod,    src->mod,
         name,   name,
@@ -1263,8 +1279,7 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
             symbol  cs = clang_getCString(n);
             t = str(cs);
             clang_disposeString(n);
-            //printf("typedef name: %s\n", t->chars);
-            if (!emodel(cs)) {
+            if (!emodel(t->chars)) {
                 CXType canonicalType = clang_getCanonicalType(base);
                 model  resolved_mdl  = cx_to_model(e, canonicalType, name, arg_rules);
                 model  typedef_mdl   = model_alias(resolved_mdl, t, reference_value, null);
@@ -1544,7 +1559,10 @@ void ether_set_token(ether e, token t) {
 void ether_llflag(ether e, symbol flag, i32 ival) {
     LLVMMetadataRef v = LLVMValueAsMetadata(
         LLVMConstInt(LLVMInt32Type(), ival, 0));
-    LLVMAddModuleFlag(e->module, LLVMModuleFlagBehaviorError, flag, strlen(flag), v);
+
+    char sflag[64];
+    memcpy(sflag, flag, strlen(flag) + 1);
+    LLVMAddModuleFlag(e->module, LLVMModuleFlagBehaviorError, sflag, strlen(sflag), v);
 }
 
 

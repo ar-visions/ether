@@ -1,7 +1,11 @@
 #ifndef _ETHER_
 #define _ETHER_
 
+/// start-trim
+
 #include <A>
+
+/// end-trim
 
 /// @brief the ether should be considered mysterious, and magical.
 /// to make effective debuggable LL code, one has to employ multiple 
