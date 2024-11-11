@@ -211,6 +211,7 @@ declare_class(node)
     i_prop    (X,Y, public,     bool,                   is_type) \
     i_prop    (X,Y, public,     bool,                   is_func) \
     i_prop    (X,Y, public,     bool,                   is_arg) \
+    i_prop    (X,Y, public,     object,                 default_value) \
     i_prop    (X,Y, intern,     i64,                    offset) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
     i_method  (X,Y, public,     none,    set_value,     object) \
@@ -220,36 +221,6 @@ declare_class(node)
 #define member_intern isize(member)
 #endif
 declare_mod(member, node)
-
-
-// support 'target' as optional 
-// (we are just using first argument, and assuming not given in args!)
-#define fcall_schema(X,Y) \
-    i_prop(X,Y, required,     member,                 fn) \
-    i_prop(X,Y, required,     map,                    args) \
-    i_prop(X,Y, public,       member,                 target)
-#ifndef fcall_intern
-#define fcall_intern
-#endif
-declare_mod(fcall, node)
-
-
-#define op_schema(X,Y) \
-    i_prop(X,Y, required,     OPType,       optype) \
-    i_prop(X,Y, required,     node,         left) \
-    i_prop(X,Y, public,       node,         right)
-#ifndef op_intern
-#define op_intern
-#endif
-declare_mod(op, node)
-
-
-#define ret_schema(X,Y)
-#ifndef ret_intern
-#define ret_intern
-#endif
-declare_mod(ret, node)
-
 
 /// ether must be capable of multiple returns in abstract
 /// this is something i believe we require of silver for 0.88 spec
@@ -277,9 +248,8 @@ declare_mod(ret, node)
     i_method  (X,Y, public,     node,       sub,        object, object) \
     i_method  (X,Y, public,     node,       mul,        object, object) \
     i_method  (X,Y, public,     node,       div,        object, object) \
-    i_method  (X,Y, public,     node,       allocate,   model) \
+    i_method  (X,Y, public,     node,       alloc,      model, object) \
     i_method  (X,Y, public,     node,       zero,       node) \
-    i_method  (X,Y, public,     node,       object,     model,  object) \
     i_method  (X,Y, public,     node,       assign,     node,   object) \
     i_method  (X,Y, public,     node,       assign_add, node,   object) \
     i_method  (X,Y, public,     node,       assign_sub, node,   object) \

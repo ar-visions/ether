@@ -40,8 +40,8 @@ member ether_lookup(ether e, string name);
 
 member ether_push_model(ether e, model mdl) {
     member mem   = emember (mdl, mdl->name->chars);
-    mem->is_func = inherits(mdl, function);
-    mem->is_type = !mem->is_type;
+    mem->is_func = instanceof(mdl, function) != null;
+    mem->is_type = !mem->is_func;
     set(e->top->members, str(mdl->name->chars), mem);
     return mem;
 }
@@ -179,7 +179,7 @@ i64 model_cmp(model mdl, model b) {
 void model_init(model mdl) {
     ether  e = mdl->mod;
 
-    if (mdl->name && inherits(mdl->name, string)) {
+    if (mdl->name && instanceof(mdl->name, string)) {
         string n = mdl->name;
         mdl->name = new(token, chars, cs(n), source, e ? e->source : null, line, 1);
     }
@@ -191,7 +191,7 @@ void model_init(model mdl) {
         return;
 
     /// narrow down type traits
-    string name = cast(mdl, string);
+    string name = cast(string, mdl);
     model mdl_src = mdl;
     if (isa(mdl_src) == typeid(model)) {
         while (isa(mdl_src) == typeid(model) && mdl_src->src) {
@@ -330,7 +330,7 @@ void function_start(function fn) {
         ether_push_member(e, fn->main_member);
         
         member main_member = emember(fn->main_member->mdl, fn->main_member->name->chars);
-        node   n_create    = ecall(allocate, main_member->mdl->src); /// call allocate, does not call init yet!
+        node   n_create    = ecall(alloc, main_member->mdl->src, null); /// call allocate, does not call init yet!
         ecall(zero, n_create);
 
         node   n_assign    = ecall(assign, main_member, n_create); /// assign this allocation to our member
@@ -339,7 +339,7 @@ void function_start(function fn) {
         /// now we must programmatically LLVM-IR iterate through the members in stack argc and argv
 
         model  i64         = emodel("int");
-        node   arg_i       = ecall(allocate, i64);
+        node   arg_i       = ecall(alloc, i64, null);
 
 
 
@@ -511,7 +511,7 @@ void record_finalize(record rec) {
     LLVMTargetDataRef target_data = rec->mod->target_data;
     LLVMTypeRef*     member_types = calloc(total, sizeof(LLVMTypeRef));
     LLVMMetadataRef* member_debug = calloc(total, sizeof(LLVMMetadataRef));
-    bool             is_uni       = inherits(rec, uni);
+    bool             is_uni       = instanceof(rec, uni) != null;
     int              index        = 0;
     member           largest      = null;
     sz               sz_largest   = 0;
@@ -718,7 +718,7 @@ void member_init(member mem) {
     ether e   = mem->mod;
     model top = e->top;
 
-    if (inherits(mem->name, string)) {
+    if (instanceof(mem->name, string)) {
         string n = mem->name;
         mem->name = new(token, chars, cs(n), source, e->source, line, 1);
     }
@@ -729,14 +729,6 @@ void member_init(member mem) {
     member_set_debug(mem);
 }
 
-void op_init(op op) {
-    /// lets create everything we need for LLVM call here
-}
-
-
-void ret_init(ret op) {
-    /// lets create everything we need for LLVM call here
-}
 
 #define value(m,vr) (e->no_build) ? \
     new(node, mod, e, mdl, emodel("void")) : \
@@ -760,18 +752,18 @@ void ret_init(ret op) {
 node ether_operand(ether e, object op) {
     if (!op) return value(emodel("void"), null);
 
-         if (inherits(op,   node)) return op;
-    else if (inherits(op,     u8)) return uint_value(8,  op);
-    else if (inherits(op,    u16)) return uint_value(16, op);
-    else if (inherits(op,    u32)) return uint_value(32, op);
-    else if (inherits(op,    u64)) return uint_value(64, op);
-    else if (inherits(op,     i8)) return  int_value(8,  op);
-    else if (inherits(op,    i16)) return  int_value(16, op);
-    else if (inherits(op,    i32)) return  int_value(32, op);
-    else if (inherits(op,    i64)) return  int_value(64, op);
-    else if (inherits(op,    f32)) return real_value(32, op);
-    else if (inherits(op,    f64)) return real_value(64, op);
-    else if (inherits(op, string)) {
+         if (instanceof(op,   node)) return op;
+    else if (instanceof(op,     u8)) return uint_value(8,  op);
+    else if (instanceof(op,    u16)) return uint_value(16, op);
+    else if (instanceof(op,    u32)) return uint_value(32, op);
+    else if (instanceof(op,    u64)) return uint_value(64, op);
+    else if (instanceof(op,     i8)) return  int_value(8,  op);
+    else if (instanceof(op,    i16)) return  int_value(16, op);
+    else if (instanceof(op,    i32)) return  int_value(32, op);
+    else if (instanceof(op,    i64)) return  int_value(64, op);
+    else if (instanceof(op,    f32)) return real_value(32, op);
+    else if (instanceof(op,    f64)) return real_value(64, op);
+    else if (instanceof(op, string)) {
         LLVMTypeRef  gs      = LLVMBuildGlobalStringPtr(e->builder, ((string)op)->chars, "chars");
         LLVMValueRef cast_i8 = LLVMBuildBitCast(e->builder, gs, LLVMPointerType(LLVMInt8Type(), 0), "cast_symbol");
         return new(node, mod, e, value, cast_i8, mdl, emodel("symbol"), literal, op);
@@ -810,25 +802,16 @@ model model_alias(model src, string name, reference r, array shape) {
     return ref;
 }
 
-//i_method  (X,Y, public,     node,       map,        object) \
-//i_method  (X,Y, public,     node,       object,     model,  object) \
-
 // this arg is constant for now, with values that are nodes
 // we will want this to work with operand-behavior once we allow maps with operand
-node ether_object(ether e, model m, object args) {
+node ether_alloc(ether e, model mdl, object args) {
+    LLVMValueRef v = LLVMBuildAlloca(e->builder, mdl->type, "alloc-mdl");
     map imap = instanceof(args, map);
     if (imap)
     pairs(imap, i) {
         string arg_name  = instanceof(i->key, string);
         node   arg_value = instanceof(i->value, node);
     }
-
-    /// initialization happens similarly to how we handle 
-    return null;
-}
-
-node ether_allocate(ether e, model mdl) {
-    LLVMValueRef v = LLVMBuildAlloca(e->builder, mdl->type, "alloc-mdl");
     return value(mdl->type, v);
 }
 
@@ -1187,6 +1170,7 @@ void ether_define_primitive(ether e) {
 /// look up a member in lexical scope
 /// this applies to models too, because they have membership as a type entry
 member ether_lookup(ether e, string name) {
+    if (!name) return null;
     verify(instanceof(name, string), "name is not string");
     for (int i = len(e->lex) - 1; i >= 0; i--) {
         model ctx = e->lex->elements[i];
@@ -1602,11 +1586,11 @@ void ether_llvm_init(ether e) {
     ecall(llflag, "Debug Info Version", 3);
 
     string src_file =      filename (e->source);
-    string src_path = cast(directory(e->source), string);
+    string src_path = cast(string, directory(e->source));
     e->file = LLVMDIBuilderCreateFile( // create e file reference (the source file for debugging)
         e->dbg_builder,
-        cast(src_file, cstr), cast(src_file, sz),
-        cast(src_path, cstr), cast(src_path, sz));
+        cast(cstr, src_file), cast(sz, src_file),
+        cast(cstr, src_path), cast(sz, src_path));
     
     e->compile_unit = LLVMDIBuilderCreateCompileUnit(
         e->dbg_builder, LLVMDWARFSourceLanguageC, e->file,
@@ -2084,7 +2068,7 @@ string token_cast_string(token a) {
 }
 
 AType token_is_bool(token a) {
-    string t = cast(a, string);
+    string t = cast(string, a);
     return (cmp(t, "true") || cmp(t, "false")) ?
         (AType)typeid(bool) : null;
 }
@@ -2177,5 +2161,4 @@ define_class(token)
 
 define_class(node)
 
-define_mod(op,       node)
 define_mod(member,   node)
