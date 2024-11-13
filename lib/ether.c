@@ -23,6 +23,7 @@ typedef LLVMMetadataRef LLVMScope;
 #define       ret_intern  intern(ret)
 #define     token_intern  intern(token)
 
+#include <import>
 #include <ether>
 
 // def -> base for change from type to member (member has model 
@@ -128,7 +129,7 @@ void model_process_finalize(model mdl) { // nobody calls finalize except us, her
     if (mdl->name && eq(mdl->name, "run")) {
         br();
     }
-    call(mdl, preprocess);
+    preprocess(mdl);
     function fn = instanceof(mdl, function);
     if (mdl->process) {
         if (fn && fn->record) push(e, fn->record);
@@ -139,7 +140,7 @@ void model_process_finalize(model mdl) { // nobody calls finalize except us, her
         pop(e);
         if (fn && fn->record) pop(e);
     }
-    call(mdl, finalize); /// 'process' is too coupled in function
+    finalize(mdl); /// 'process' is too coupled in function
     mdl->process = null;
 }
 
@@ -181,7 +182,7 @@ void model_init(model mdl) {
 
     if (mdl->name && instanceof(mdl->name, string)) {
         string n = mdl->name;
-        mdl->name = new(token, chars, cs(n), source, e ? e->source : null, line, 1);
+        mdl->name = new(token, chars, cstring(n), source, e ? e->source : null, line, 1);
     }
 
     if (!mdl->members)
