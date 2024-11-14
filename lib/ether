@@ -32,6 +32,7 @@ typedef struct member*      member;
     i_method    (X,Y,  public,  num,        cmp,        cstr) \
     i_method    (X,Y,  public,  sz,         len) \
     i_method    (X,Y,  public,  string,     location) \
+    i_cast      (X,Y,  public,  cstr) \
     i_override  (X,Y,  method,  init) \
     i_override  (X,Y,  method,  compare) \
     i_override  (X,Y,  cast,    string) \
@@ -214,6 +215,7 @@ declare_class(node)
     i_prop    (X,Y, public,     object,                 default_value) \
     i_prop    (X,Y, intern,     i64,                    offset) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
+    i_method  (X,Y, public,     none,    set_model,     model) \
     i_method  (X,Y, public,     none,    set_value,     object) \
     i_method  (X,Y, public,     member,  resolve,       string) \
     i_override(X,Y, method,     init)
@@ -225,55 +227,56 @@ declare_mod(member, node)
 /// ether must be capable of multiple returns in abstract
 /// this is something i believe we require of silver for 0.88 spec
 #define ether_schema(X,Y)\
-    i_prop    (X,Y, required,   path,                   source) \
-    i_prop    (X,Y, required,   string,                 lang) \
-    i_prop    (X,Y, required,   path,                   install) \
-    i_prop    (X,Y, public,     bool,                   no_build) \
-    i_prop    (X,Y, public,     bool,                   with_debug) \
-    i_method  (X,Y, public,     none,       push_member, member) \
-    i_method  (X,Y, public,     member,     push_model,  model) \
-    i_method  (X,Y, public,     node,       operand,    object) \
-    i_method  (X,Y, public,     node,       op,         OPType, string, object, object) \
-    i_method  (X,Y, public,     node,       load,       node, model, object) \
-    i_method  (X,Y, public,     node,       if_else,    array, array, subprocedure, subprocedure) \
-    i_method  (X,Y, public,     node,       ternary,    node, node, node) \
-    i_method  (X,Y, public,     node,       convert,    node, model) \
-    i_method  (X,Y, public,     node,       addr_of,    node, model) \
-    i_method  (X,Y, public,     node,       bitwise_not, node) \
-    i_method  (X,Y, public,     node,       not,        node) \
-    i_method  (X,Y, public,     node,       or,         object, object) \
-    i_method  (X,Y, public,     node,       xor,        object, object) \
-    i_method  (X,Y, public,     node,       and,        object, object) \
-    i_method  (X,Y, public,     node,       add,        object, object) \
-    i_method  (X,Y, public,     node,       sub,        object, object) \
-    i_method  (X,Y, public,     node,       mul,        object, object) \
-    i_method  (X,Y, public,     node,       div,        object, object) \
-    i_method  (X,Y, public,     node,       alloc,      model, object) \
-    i_method  (X,Y, public,     node,       zero,       node) \
-    i_method  (X,Y, public,     node,       assign,     node,   object) \
-    i_method  (X,Y, public,     node,       assign_add, node,   object) \
-    i_method  (X,Y, public,     node,       assign_sub, node,   object) \
-    i_method  (X,Y, public,     node,       assign_mul, node,   object) \
-    i_method  (X,Y, public,     node,       assign_div, node,   object) \
-    i_method  (X,Y, public,     node,       assign_mod, node,   object) \
-    i_method  (X,Y, public,     node,       assign_or,  node,   object) \
-    i_method  (X,Y, public,     node,       assign_and, node,   object) \
-    i_method  (X,Y, public,     node,       assign_xor, node,   object) \
-    i_method  (X,Y, public,     node,       eq,         node, node) \
-    i_method  (X,Y, public,     node,       not_eq,     node, node) \
-    i_method  (X,Y, public,     node,       fcall,      member, node, array) \
-    i_method  (X,Y, public,     node,       freturn,    object) \
-    i_method  (X,Y, public,     node,       is,         node, object) \
-    i_method  (X,Y, public,     node,       inherits,   node, object) \
-    i_method  (X,Y, public,     member,     lookup,     string) \
+    i_method  (X,Y, public,     none,       push_member,    member) \
+    i_method  (X,Y, public,     member,     push_model,     model) \
+    i_method  (X,Y, public,     node,       operand,        object) \
+    i_method  (X,Y, public,     node,       op,             OPType, string, object, object) \
+    i_method  (X,Y, public,     node,       load,           node, model, object) \
+    i_method  (X,Y, public,     node,       if_else,        array, array, subprocedure, subprocedure) \
+    i_method  (X,Y, public,     node,       ternary,        node, node, node) \
+    i_method  (X,Y, public,     node,       convert,        node, model) \
+    i_method  (X,Y, public,     node,       addr_of,        node, model) \
+    i_method  (X,Y, public,     node,       bitwise_not,    node) \
+    i_method  (X,Y, public,     node,       not,            node) \
+    i_method  (X,Y, public,     node,       or,             object, object) \
+    i_method  (X,Y, public,     node,       xor,            object, object) \
+    i_method  (X,Y, public,     node,       and,            object, object) \
+    i_method  (X,Y, public,     node,       add,            object, object) \
+    i_method  (X,Y, public,     node,       sub,            object, object) \
+    i_method  (X,Y, public,     node,       mul,            object, object) \
+    i_method  (X,Y, public,     node,       div,            object, object) \
+    i_method  (X,Y, public,     node,       alloc,          model, object) \
+    i_method  (X,Y, public,     node,       zero,           node) \
+    i_method  (X,Y, public,     node,       assign,         node,   object) \
+    i_method  (X,Y, public,     node,       assign_add,     node,   object) \
+    i_method  (X,Y, public,     node,       assign_sub,     node,   object) \
+    i_method  (X,Y, public,     node,       assign_mul,     node,   object) \
+    i_method  (X,Y, public,     node,       assign_div,     node,   object) \
+    i_method  (X,Y, public,     node,       assign_mod,     node,   object) \
+    i_method  (X,Y, public,     node,       assign_or,      node,   object) \
+    i_method  (X,Y, public,     node,       assign_and,     node,   object) \
+    i_method  (X,Y, public,     node,       assign_xor,     node,   object) \
+    i_method  (X,Y, public,     node,       eq,             node, node) \
+    i_method  (X,Y, public,     node,       not_eq,         node, node) \
+    i_method  (X,Y, public,     node,       fn_call,        member, node, array) \
+    i_method  (X,Y, public,     node,       fn_return,      object) \
+    i_method  (X,Y, public,     node,       is,             node, object) \
+    i_method  (X,Y, public,     node,       inherits,       node, object) \
+    i_method  (X,Y, public,     member,     lookup,         string) \
+    i_method  (X,Y, public,     model,      context_model,  AType) \
+    i_method  (X,Y, public,     none,       include,        string) \
+    i_method  (X,Y, public,     none,       llflag,         symbol, i32) \
     i_method  (X,Y, public,     model,      push,       model) \
     i_method  (X,Y, public,     model,      pop) \
     i_method  (X,Y, public,     model,      top) \
     i_method  (X,Y, public,     none,       write) \
     i_method  (X,Y, public,     none,       build) \
     i_method  (X,Y, public,     model,      return_type) \
-    i_method  (X,Y, public,     model,      context_model, AType) \
-    i_method  (X,Y, public,     none,       include, string) \
+    i_prop    (X,Y, required,   path,                   source) \
+    i_prop    (X,Y, required,   string,                 lang) \
+    i_prop    (X,Y, required,   path,                   install) \
+    i_prop    (X,Y, public,     bool,                   no_build) \
+    i_prop    (X,Y, public,     bool,                   with_debug) \
     i_prop    (X,Y, intern,     path,                   current_include) \
     i_prop    (X,Y, intern,     function,               current_fn) \
     i_prop    (X,Y, public,     model,                  top) \
