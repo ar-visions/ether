@@ -204,8 +204,10 @@ declare_class(node)
 // if ref is set, its a reference to a member with type definition (model, struct, ref)
 #define member_schema(X,Y) \
     i_prop    (X,Y, public,     interface,              access) \
-    i_prop    (X,Y, public,     member,                 target) \
+    i_prop    (X,Y, public,     member,                 target_member) \
+    i_prop    (X,Y, public,     record,                 target_record) \
     i_prop    (X,Y, public,     bool,                   is_static) \
+    i_prop    (X,Y, public,     bool,                   is_require) \
     i_prop    (X,Y, public,     bool,                   is_inlay) \
     i_prop    (X,Y, public,     bool,                   is_const) \
     i_prop    (X,Y, public,     bool,                   is_assigned) \
@@ -214,6 +216,7 @@ declare_class(node)
     i_prop    (X,Y, public,     bool,                   is_arg) \
     i_prop    (X,Y, public,     object,                 default_value) \
     i_prop    (X,Y, intern,     i64,                    offset) \
+    i_prop    (X,Y, intern,     i64,                    index) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
     i_method  (X,Y, public,     none,    set_model,     model) \
     i_method  (X,Y, public,     none,    set_value,     object) \

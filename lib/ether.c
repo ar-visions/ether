@@ -303,7 +303,7 @@ void function_start(function fn) {
     int index = 0;
     if (fn->target) {
         fn->target->value = LLVMGetParam(fn->value, index++);
-        set(fn->members, str("this"), fn->target);
+        set(fn->members, str("this"), fn->target); /// here we have the LLVM Value Ref of the first arg, or, our instance pointer
     }
     each(fn->args, member, arg) {
         arg->value = LLVMGetParam(fn->value, index++);
@@ -473,6 +473,10 @@ void function_init(function fn) {
 }
 
 void record_finalize(record rec) {
+    if (eq(rec->name, "class1")) {
+        int test = 0;
+        test++;
+    }
     int   total = 0;
     ether e     = rec->mod;
     array a     = array(32);
@@ -539,6 +543,29 @@ void record_finalize(record rec) {
             }
         }
     }
+
+    if (is_uni) {
+        verify(sz_largest, "cannot determine size of union");
+        LLVMStructSetBody(rec->type, &largest->mdl->type, 1, 0);
+    } else
+        LLVMStructSetBody(rec->type, member_types, index, 0);
+
+    /// set record size
+    rec->size = LLVMABISizeOfType(target_data, rec->type);
+    
+    /// set offsets on members (needed for the method finalization)
+    num imember = 0;
+    each (a, record, r)
+        pairs(r->members, i) {
+            member mem = i->value;
+            if (instanceof(mem->mdl, function)) // functions do not occupy membership on the instance
+                continue;
+            mem->index  = imember;
+            mem->offset = LLVMOffsetOfElement(target_data, rec->type, imember);
+            if (!instanceof(r, uni)) // unions have 1 member
+                imember++;
+        }
+    
     /// finalize methods on record (which use its members)
     each (a, record, r) {
         pairs(r->members, i) {
@@ -547,24 +574,9 @@ void record_finalize(record rec) {
                 model_process_finalize(mem->mdl);
         }
     }
-    if (is_uni) {
-        verify(sz_largest, "cannot determine size of union");
-        LLVMStructSetBody(rec->type, &largest->mdl->type, 1, 0);
-    } else
-        LLVMStructSetBody(rec->type, member_types, index, 0);
     
     int sz = LLVMABISizeOfType     (target_data, rec->type);
     int al = LLVMABIAlignmentOfType(target_data, rec->type);
-    num imember = 0;
-    each (a, record, r)
-        pairs(r->members, i) {
-            member mem = i->value;
-            if (instanceof(mem->mdl, function)) // functions do not occupy membership on the instance
-                continue;
-            mem->offset = LLVMOffsetOfElement(target_data, rec->type, imember);
-            if (!instanceof(r, uni)) // unions have 1 member
-                imember++;
-        }
     
     LLVMMetadataRef prev = rec->debug;
 
@@ -635,7 +647,7 @@ member member_resolve(member mem, string name) {
                 res->value = fn ? fn->value : LLVMBuildStructGEP2(
                         e->builder, base->type, mem->value, index, "resolve");
                 /// store what target this member came from
-                res->target = mem;
+                res->target_member = mem;
                 if (fn)
                     res->is_func = true;
             }
@@ -796,14 +808,39 @@ model model_alias(model src, string name, reference r, array shape) {
 // this arg is constant for now, with values that are nodes
 // we will want this to work with operand-behavior once we allow maps with operand
 node ether_alloc(ether e, model mdl, object args) {
-    LLVMValueRef v = LLVMBuildAlloca(e->builder, mdl->type, "alloc-mdl");
+    LLVMValueRef alloc  = LLVMBuildAlloca(e->builder, mdl->type, "alloc-mdl");
+    LLVMSetAlignment(alloc, 8);
+    LLVMValueRef zero   = LLVMConstInt(LLVMInt8Type(), 0, 0);          // value for memset (0)
+    LLVMValueRef size   = LLVMConstInt(LLVMInt64Type(), mdl->size, 0); // size of alloc
+    LLVMValueRef memset = LLVMBuildMemSet(e->builder, alloc, zero, size, 0);
+
     map imap = instanceof(args, map);
-    if (imap)
-    pairs(imap, i) {
-        string arg_name  = instanceof(i->key, string);
-        node   arg_value = instanceof(i->value, node);
+    if (imap) {
+        map used  = map();
+        int total = 0;
+        pairs(imap, i) {
+            string arg_name  = instanceof(i->key, string);
+            node   arg_value = instanceof(i->value, node);
+            verify (!contains(used, arg_name), "duplicate argument: %o", arg_name);
+            set    (used, arg_name, A_bool(true));
+            member m = get(mdl->members, arg_name);
+            verify(m, "member %o not found on record: %o", arg_name, mdl->name);
+            LLVMValueRef ptr = LLVMBuildStructGEP2(e->builder,
+                mdl->type, alloc, m->index, arg_name->chars);
+            //arg_value->value = LLVMConstInt(LLVMInt64Type(), 44, 0);
+            LLVMBuildStore(e->builder, arg_value->value, ptr);
+            total++;
+        }
+        int r_count = 0;
+        pairs(mdl->members, i) {
+            member mem = i->value;
+            if (mem->is_require)
+                r_count++;
+        }
+        verify(r_count <= total, "required arguments not provided");
     }
-    return value(mdl, v);
+    // check for required args
+    return value(mdl, alloc);
 }
 
 LLVMValueRef get_memset_function(ether e) {
@@ -964,21 +1001,24 @@ node ether_load(ether e, node n, model mdl, object offset) {
     if (n->value && is_const_v(n->value))
         return n;
 
-    function fn = ether_context_model(e, typeid(function));
-    member     target = elookup("this");
-    AType target_type = isa(target->mdl);
+    function   fn = ether_context_model(e, typeid(function));
+    member  n_mem = instanceof(n, member);
+    member target = elookup("this"); // unique to the function in class, not the class
+    /// static methods do not have this in context
+    if (n_mem && n_mem->target_record) {
+        verify(target, "target is null (unhandled exception)"); // there will be ways this could be the case with embedded lambdas
+        verify(target->mdl->src == n_mem->target_record, "target mismatch"); // might be n_mem->src
+        record cl_type = target->mdl->src;
+        LLVMValueRef ptr = LLVMBuildStructGEP2(e->builder,
+            cl_type->type, target->value, n_mem->index, "ptr");
+        LLVMValueRef res = LLVMBuildLoad2(e->builder,
+            mdl_result->type, ptr, "load-member");
+        return value(mdl_result, res);
+    }
+    /// todo: handle static offset from the class memory
     
-    AType target_type_src = isa(target->mdl->src);
-    class cl_type = target->mdl->src;
-    node o = offset ? operand(e, offset) : null;
-    member mem = instanceof(n, member);
-    LLVMValueRef member_offset = mem ? 
-        LLVMConstInt(LLVMInt32Type(), mem->offset, 0) : o ? o->value : 
-        LLVMConstInt(LLVMInt32Type(), 0, 0);
-    LLVMValueRef ptr = LLVMBuildGEP2(e->builder,
-        cl_type->type, target->value, &member_offset, 1, "ptr");
     LLVMValueRef res = LLVMBuildLoad2(e->builder,
-        mdl_result->type, ptr, "load-member");
+        mdl_result->type, n->value, "load-member");
     return value(mdl_result, res);
 }
 
@@ -1548,13 +1588,13 @@ void ether_write(ether e) {
     if (LLVMVerifyModule(e->module, LLVMPrintMessageAction, &err))
         fault("error verifying module: %s", err);
 
-    path ll = form(path, "%o.ll", e->name);
+    /*path ll = form(path, "%o.ll", e->name);
     path bc = form(path, "%o.bc", e->name);
     if (LLVMPrintModuleToFile(e->module, cstring(ll), &err))
         fault("LLVMPrintModuleToFile failed");
 
     if (LLVMWriteBitcodeToFile(e->module, cstring(bc)) != 0)
-        fault("LLVMWriteBitcodeToFile failed");
+        fault("LLVMWriteBitcodeToFile failed");*/
 }
 
 
