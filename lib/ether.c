@@ -56,10 +56,6 @@ member ether_push_model(ether e, model mdl) {
         mod, e, mdl, mdl, name, mdl->name,
         is_func,  is_func,
         is_type, !is_func);
-    if (strcmp(mdl->name->chars, "A") == 0) {
-        int test = 2;
-        test += 2;
-    }
     set(e->top->members, str(mdl->name->chars), mem);
     return mem;
 }
@@ -852,16 +848,8 @@ void record_finalize(record rec) {
 
 void record_init(record rec) {
     ether e = rec->mod;
-    if (eq(rec->name, "struct A")) { /// find when it gets aliased afterwrads, make sure the aliasing finds the proper reference
-        int test = 2;
-        test += 2;
-    }
     rec->type = LLVMStructCreateNamed(LLVMGetGlobalContext(), rec->name->chars);
 
-    if (strcmp(rec->name->chars, "A") == 0) {
-        int test = 2;
-        test += 2;
-    }
     // Create a forward declaration for the struct's debug info
     rec->debug = LLVMDIBuilderCreateReplaceableCompositeType(
         e->dbg_builder,                      // Debug builder
@@ -878,10 +866,6 @@ void record_init(record rec) {
         NULL,                                // Derived from (NULL in C)
         0                                    // Size and alignment (initially 0, finalized later)
     );
-    if (eq(rec->name, "struct A")) {
-        int test = 2;
-        test += 2;
-    }
     if (len(rec->members)) {
         model_process_finalize(rec);
     }
@@ -1734,11 +1718,7 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
 
             CXType canonicalType = clang_getCanonicalType(base);
             model  resolved_mdl  = cx_to_model(e, canonicalType, name, arg_rules);
-            if (strcmp(cs, "A") == 0) {
 
-                int test = 2;
-                test += 2;
-            }
             t = str(cs);
             clang_disposeString(n);
             if (!emodel(t->chars)) {
@@ -1920,10 +1900,6 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
             break;
         }
         case CXCursor_StructDecl: {
-            if (eq(name, "A")) {
-                int test = 2;
-                test += 2;
-            }
             def = structure(
                 mod,     e,
                 from_include, e->current_include,
@@ -1939,11 +1915,6 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
             }
             CXString underlying_type_name = clang_getTypeSpelling(underlying_type);
             const char *type_name = clang_getCString(underlying_type_name);
-
-            if (eq(name, "A")) {
-                int test = 2;
-                test += 2;
-            }
             /// this may be a different depth, which we need to adjust for
             model model_base = underlying_type.kind ?
                 cx_to_model(e, underlying_type, null, false) : null; 
