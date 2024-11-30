@@ -328,7 +328,7 @@ declare_class(code)
     i_method  (X,Y, public,     node,       sub,            object, object) \
     i_method  (X,Y, public,     node,       mul,            object, object) \
     i_method  (X,Y, public,     node,       div,            object, object) \
-    i_method  (X,Y, public,     node,       alloc,          model, object) \
+    i_method  (X,Y, public,     node,       create,          model, object) \
     i_method  (X,Y, public,     node,       zero,           node) \
     i_method  (X,Y, public,     node,       assign,         node,   object, OPType) \
     i_method  (X,Y, public,     node,       eq,             node, node) \
@@ -341,7 +341,10 @@ declare_class(code)
     i_method  (X,Y, public,     model,      context_model,  AType) \
     i_method  (X,Y, public,     none,       include,        string) \
     i_method  (X,Y, public,     none,       llflag,         symbol, i32) \
-    i_method  (X,Y, public,     model,      push,       model) \
+    i_method  (X,Y, public,     model,      push,     model) \
+    i_method  (X,Y, public,     node,       alloc,    model) \
+    i_method  (X,Y, public,     node,       obj,      model, object) \
+    i_method  (X,Y, public,     node,       stack,    model) \
     i_method  (X,Y, public,     model,      pop) \
     i_method  (X,Y, public,     model,      top) \
     i_method  (X,Y, public,     none,       write) \

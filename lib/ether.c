@@ -27,6 +27,27 @@ typedef LLVMMetadataRef LLVMScope;
     node(mod, e, mdl, emodel("void")) : \
     node(mod, e, value, vr, mdl, m)
 
+// Convert a hex color string (#RRGGBB) to ANSI escape code
+void generate_ansi_from_hex(const char *hex_color) {
+    if (hex_color[0] != '#' || strlen(hex_color) != 7) {
+        printf("Invalid color format. Use #RRGGBB.\n");
+        return;
+    }
+
+    // Extract RGB values from the hex string
+    int r = (int)strtol(&hex_color[1], NULL, 16) >> 16;        // Red
+    int g = ((int)strtol(&hex_color[1], NULL, 16) & 0xFF00) >> 8; // Green
+    int b = (int)strtol(&hex_color[1], NULL, 16) & 0xFF;         // Blue
+
+    // Print the ANSI escape code
+    printf("\033[38;2;%d;%d;%dm", r, g, b);
+}
+
+// Reset ANSI colors
+void reset_ansi_color() {
+    printf("\033[0m");
+}
+
 member ether_lookup(ether e, object name, AType omit);
 
 member ether_push_model(ether e, model mdl) {
@@ -323,8 +344,6 @@ void ether_eprint_node(ether e, node n) {
         array_of(null, operand(e, string(fmt)), n, null));
 }
 
-int atoi(char*);
-
 #define eprint(...) ether_eprint(__VA_ARGS__)
 
 void ether_eprint(ether e, symbol format, ...) {
@@ -401,7 +420,7 @@ void ether_eprint(ether e, symbol format, ...) {
 
 
 member ether_evar(ether e, model mdl, string name) {
-    node   a =  alloc(e, mdl, null);
+    node   a =  create(e, mdl, null);
     member m = member(mod, e, name, name, mdl, mdl);
     push_member(e, m);
     assign(e, m, a, OPType__assign);
@@ -495,7 +514,7 @@ void function_start(function fn) {
 
         /// allocate and assign main-member [ main context class ]
         push_member(e, mm);
-        node a = alloc(e, mm->mdl, null); /// call allocate, does not call init yet!
+        node a = create(e, mm->mdl, null); /// call allocate, does not call init yet!
         zero  (e, a);
 
         assign(e, mm, a, OPType__assign);
@@ -1078,10 +1097,10 @@ model model_alias(model src, object name, reference r, array shape) {
 }
 
 node ether_default_value(ether e, model mdl) {
-    return alloc(e, mdl, null);
+    return create(e, mdl, null);
 }
 
-LLVMValueRef allocate_object(ether e, model imdl) {
+node ether_alloc(ether e, model imdl) {
     model        mdl        = imdl->src;
     LLVMValueRef size_A     = LLVMConstInt(LLVMInt64Type(), 32, false);
     LLVMValueRef size_mdl   = LLVMConstInt(LLVMInt64Type(), mdl->size, false);
@@ -1090,50 +1109,73 @@ LLVMValueRef allocate_object(ether e, model imdl) {
     LLVMValueRef zero       = LLVMConstInt(LLVMInt8Type(), 0, false);  // Value to fill with
     LLVMBuildMemSet(e->builder, alloc, zero, total_size, 0);
     LLVMValueRef user       = LLVMBuildGEP2(e->builder, imdl->type, alloc, &size_A, 1, "user-mdl");
-    return user;
+    return value(imdl, user);
+}
+
+
+node ether_obj(ether e, model mdl, object args) {
+    node a = operand(e, args);
+    member mfn = convertible(a->mdl, mdl);
+    verify(mfn, "could not find suitable conversion for %o to %o", a->mdl->name, mdl->name);
+    function fn = instanceof(mfn->mdl, function);
+    node n = null;
+    if (fn->function_type & A_TYPE_CONSTRUCT) {
+        /// this means we are calling constructor and must do so after alloc'ing ourself
+        n = alloc(e, mdl); 
+    } else {
+        verify(fn->function_type & A_TYPE_CAST, "expected cast");
+        /// we call the cast function (a = singular mdl instance) to receive our object of imdl
+        n = fn_call(e, fn, array_of(null, a, null));
+    }
+    return n;
+}
+
+node ether_stack(ether e, model mdl) {
+    LLVMValueRef alloc = LLVMBuildAlloca(e->builder, mdl->type, "alloca-mdl");
+    return value(mdl, alloc);
 }
 
 /// create primitives and objects, constructs with singular args or a map of them when applicable
-node ether_alloc(ether e, model imdl, object args) {
+node ether_create(ether e, model mdl, object args) {
     LLVMValueRef alloc = null;
-    model mdl = imdl;
-    map  imap = instanceof(args, map);
-    node n    = null;
+    map    imap = instanceof(args, map);
+    node   n    = null;
+    member ctr  = null;
 
-    if (imdl->ref == reference_value) {
-        mdl   = imdl;
-        alloc = LLVMBuildAlloca(e->builder, mdl->type, "alloca-mdl");
-        n = value(imdl, alloc); 
-    } else if (imdl->ref == reference_pointer) {
-        /// before we alloc, we must determine
-        // if a constructor will call, or a cast will call.
-        // we want this all happening in a single function to consolidate functionality and reduce our interface
-        if (imap || !args) {
-            mdl   = imdl->src;
-            alloc = allocate_object(e, imdl);
-            n = value(imdl, alloc); 
-        } else {
-            node   a  = operand(e, args);
-            member mfn = convertible(a->mdl, mdl);
-            verify(mfn, "could not find suitable conversion for %o to %o", a->mdl->name, mdl->name);
-            function fn = instanceof(mfn->mdl, function);
-            if (fn->function_type & A_TYPE_CONSTRUCT) {
-                /// this means we are calling constructor and must do so after alloc'ing ourself
-                alloc = allocate_object(e, imdl);
-                n = value(imdl, alloc); 
-            } else {
-                verify(fn->function_type & A_TYPE_CAST, "expected cast");
-                /// we call the cast function (a = singular mdl instance) to receive our object of imdl
-                n = fn_call(e, fn, array_of(null, a, null));
-            }
-        }
-
+    /// construct / cast methods
+    node input = instanceof(args, node);
+    if (input) {
+        verify(!imap, "unexpected data");
+        member fmem = convertible(input->mdl, mdl);
+        verify(fmem, "no suitable conversion found for %o -> %o",
+            input->mdl->name, mdl->name);
+        function fn = instanceof(fmem->mdl, function);
+        if (fn->function_type & A_TYPE_CONSTRUCT) {
+            /// ctr: call before init
+            /// this also means the mdl is not a primitive
+            verify(!is_primitive(fn->rtype), "expected struct/class");
+            ctr = fmem;
+        } else if (fn->function_type & A_TYPE_CAST) {
+            /// cast call on input
+            return fn_call(e, fn, array_of(null, input, null));
+        } else
+            fault("unknown error");
+    }
+    bool perform_assign = false;
+    if (mdl->ref == reference_value) {
+        verify(isa(mdl) != typeid(class), "unsupported data store (inlay not supported in 0.8.8)");
+        verify(!input, "code path error");
+        n     = stack(e, mdl); 
+        perform_assign = !!args;
+    } else if (mdl->ref == reference_pointer) {
+        n     = alloc(e, mdl);
     } else {
         fault("not implemented");
     }
 
+    /// iterate through args in map, setting values
     if (imap) {
-        verify(imdl->ref == reference_pointer, "model mismatch");
+        verify(mdl->ref == reference_pointer, "model mismatch");
         verify(instanceof(mdl, record), "model not a record, and given a map"); ///
         map used  = map();
         int total = 0;
@@ -1145,34 +1187,28 @@ node ether_alloc(ether e, model imdl, object args) {
             member m = get(mdl->members, arg_name);
             verify(m, "member %o not found on record: %o", arg_name, mdl->name);
             LLVMValueRef ptr = LLVMBuildStructGEP2(e->builder,
-                mdl->type, alloc, m->index, arg_name->chars);
+                mdl->type, n->value, m->index, arg_name->chars);
             //arg_value->value = LLVMConstInt(LLVMInt64Type(), 44, 0);
             // for objects, we must increment the ref, too [call the method A_hold]
             LLVMBuildStore(e->builder, arg_value->value, ptr);
             total++;
         }
-        int r_count = 0;
         pairs(mdl->members, i) {
             member mem = i->value;
             if (mem->is_require)
-                r_count++;
+                verify (contains(used, mem->name), "required argument not set: %o", mem->name);
         }
-        verify(r_count <= total, "required arguments not provided");
-        
+        /// generic > object
         /// call init on the object
 
     } else if (args) {
         node a = operand(e, args);
-        if (imdl->ref == reference_pointer) {
-            member fn = convertible(a->mdl, mdl);
-            verify(fn, "could not find suitable conversion for %o to %o", a->mdl->name, mdl->name);
-        } else {
+        /// this should only happen on primitives
+        if (perform_assign) {
             node conv = convert(e, a, n->mdl);
-            n = assign(e, n, conv, OPType__assign);
+            n         = assign (e, n, conv, OPType__assign);
         }
-
     }
-    // check for required args
     return n;
 }
 
