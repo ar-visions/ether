@@ -64,7 +64,15 @@ void ether_push_member(ether e, member mem) {
     if (mem->registered)
         return;
     mem->registered = true;
-    map members = e->top->members;
+    model top = e->top;
+
+    for (int i = len(e->lex) - 1; i >= 0; i--) {
+        top = e->lex->elements[i];
+        if (!top->lookup_omit)
+            break;
+    }
+
+    map members = top->members;
     string  key = str(mem->name->chars);
     array  list = get(members, key);
     if (!list) {
@@ -1360,6 +1368,55 @@ node ether_offset(ether e, node n, object offset) {
                          node(mod, e, mdl, mdl, value, ptr_offset);
 }
 
+///
+object node_const_value(node n) {
+    ether e = n->mod;
+
+    if (n->literal)
+        return n->literal;
+
+    if (LLVMIsConstant(n->value)) {
+        LLVMValueRef v = n->value;
+        LLVMTypeRef  t = LLVMTypeOf(v);
+        
+        // integers
+        if (LLVMIsConstant(v) && LLVMGetTypeKind(t) == LLVMIntegerTypeKind) {
+            int bitwidth = LLVMGetIntTypeWidth(t);
+            if (bitwidth == 1)
+                return A_bool(LLVMConstIntGetZExtValue(v) != 0);
+            else
+                return A_i64((i64)LLVMConstIntGetSExtValue(v));
+        }
+        
+        // strings
+        if (LLVMIsConstantString(v)) {
+            size_t length = 0;
+            char* strValue = LLVMGetAsString(v, &length);
+            verify(strValue, "failed to get string value");
+            return string(strValue);
+        }
+        
+        // arrays of primitives
+        /*
+        if (LLVMGetTypeKind(t) == LLVMArrayTypeKind) {
+            int numElements = LLVMGetArrayLength(t);
+            if (LLVMGetElementType(t) == LLVMInt8TypeKind) {
+                // Array of i8, likely a string
+                char* buffer = calloc(1, numElements + 1);
+                for (int i = 0; i < numElements; i++) {
+                    LLVMValueRef element = LLVMGetConstArrayElement(v, i);
+                    buffer[i] = (char)LLVMConstIntGetZExtValue(element);
+                }
+                buffer[numElements] = '\0';
+                object result = string(buffer);
+                free(buffer);
+                return result;
+            }
+        }*/
+    }
+    return null;
+}
+
 node ether_load(ether e, node n) {
     if (n->loaded) return n;
     verify(!e->left_hand, "should not be calling load on L hand side");
@@ -1625,6 +1682,8 @@ member ether_lookup(ether e, object name, AType omit) {
         name = cast(string, (token)name);
     for (int i = len(e->lex) - 1; i >= 0; i--) {
         model ctx = e->lex->elements[i];
+        if (ctx->lookup_omit)
+            continue;
         AType ctx_type = isa(ctx);
         member  m = get(ctx->members, name);
         if (m && (!m->mdl || !m->mdl->lookup_omit)) {
@@ -1945,6 +2004,7 @@ member model_initializer(model mdl) {
         name,     token(chars, fn_name->chars),
         imdl,     mdl,
         rtype,    rtype,
+        lookup_omit, true,
         args,     arguments());
     
     /// we may place build cursor in function block and start building
@@ -2053,6 +2113,9 @@ void ether_llvm_init(ether e) {
     e->target_data = LLVMCreateTargetDataLayout(e->target_machine);
     llflag(e, "Dwarf Version",      5);
     llflag(e, "Debug Info Version", 3);
+
+    printf("ether: sizeof model = %i\n", (int)sizeof(struct model));
+    printf("ether: sizeof ether = %i\n", (int)sizeof(struct ether));
 
     string src_file =      filename (e->source);
     string src_path = cast(string, directory(e->source));

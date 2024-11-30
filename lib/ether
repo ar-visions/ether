@@ -142,6 +142,7 @@ declare_class(format_attr)
 #define function_schema(X,Y) \
     i_prop(X,Y, public,     bool,                   is_cast) \
     i_prop(X,Y, public,     bool,                   is_global_ctr) \
+    i_prop(X,Y, public,     bool,                   is_init) \
     i_prop(X,Y, public,     bool,                   va_args) \
     i_prop(X,Y, public,     arguments,              args) \
     i_prop(X,Y, public,     record,                 payload) \
@@ -225,6 +226,7 @@ declare_mod(uni, record, model)
     i_prop    (X,Y, public,     num,                    line) \
     i_prop    (X,Y, public,     num,                    column) \
     i_prop    (X,Y, public,     bool,                   loaded) \
+    i_method  (X,Y, public,     object,                 const_value) \
     i_prop    (X,Y, intern,     LLVMValueRef,           value)
 #ifndef node_intern
 #define node_intern isize(node)
