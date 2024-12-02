@@ -79,7 +79,6 @@ typedef struct node* node;
     i_prop    (X,Y, required,   ether,            mod) \
     i_prop    (X,Y, public,     token,            name) \
     i_prop    (X,Y, required,   model,            src) \
-    i_prop    (X,Y, public,     bool,             lookup_omit) \
     i_prop    (X,Y, public,     reference,        ref) \
     i_prop    (X,Y, public,     array,            shape) \
     i_prop    (X,Y, public,     sz,               size) \
@@ -101,7 +100,6 @@ typedef struct node* node;
     i_method  (X,Y, public,     bool,       has_scope) \
     i_method  (X,Y, public,     none,       process_finalize) \
     i_method  (X,Y, public,     model,      alias,              object, reference, array) \
-    i_method  (X,Y, public,     i64,        cmp,                model) \
     i_method  (X,Y, public,     none,       finalize) \
     i_method  (X,Y, public,     none,       preprocess) \
     i_method  (X,Y, public,     member,     convertible,   model) \
@@ -285,7 +283,7 @@ declare_class(code)
     i_prop    (X,Y, intern,     path,                   current_include) \
     i_prop    (X,Y, intern,     function,               current_fn) \
     i_prop    (X,Y, public,     model,                  top) \
-    i_prop    (X,Y, intern,     array,                  lex) \
+    i_prop    (X,Y, public,     array,                  lex) \
     i_prop    (X,Y, public,     map,                    base) \
     i_prop    (X,Y, public,     member,                 module_init) \
     i_prop    (X,Y, intern,     LLVMExecutionEngineRef, jit) \
@@ -334,12 +332,13 @@ declare_class(code)
     i_method  (X,Y, public,     node,       zero,           node) \
     i_method  (X,Y, public,     node,       assign,         node,   object, OPType) \
     i_method  (X,Y, public,     node,       eq,             node, node) \
+    i_method  (X,Y, public,     node,       cmp,            node, node) \
     i_method  (X,Y, public,     node,       not_eq,         node, node) \
     i_method  (X,Y, public,     node,       fn_call,        member, array) \
     i_method  (X,Y, public,     node,       fn_return,      object) \
     i_method  (X,Y, public,     node,       is,             node, object) \
     i_method  (X,Y, public,     node,       inherits,       node, object) \
-    i_method  (X,Y, public,     member,     lookup,         object, AType) \
+    i_method  (X,Y, public,     member,     lookup,         object) \
     i_method  (X,Y, public,     model,      context_model,  AType) \
     i_method  (X,Y, public,     none,       include,        string) \
     i_method  (X,Y, public,     none,       llflag,         symbol, i32) \
