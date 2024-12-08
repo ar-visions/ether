@@ -2,9 +2,7 @@
 #define _ETHER_
 
 /// start-trim
-
 #include <A>
-
 /// end-trim
 
 /// @brief the ether should be considered mysterious, and magical.
@@ -20,6 +18,8 @@ typedef struct ether*       ether;
 typedef struct model*       model;
 typedef struct member*      member;
 typedef struct record*      record;
+typedef struct node*        node;
+typedef struct function*    function;
 
 #define comparison_schema(X,Y) \
     enum_value_v(X,Y, equals, 32) \
@@ -72,7 +72,6 @@ declare_enum(interface)
     enum_value(X,Y, constant)
 declare_enum(reference)
 
-typedef struct node* node;
 
 #define model_schema(X,Y)\
     i_prop    (X,Y, required,   ether,            mod) \
@@ -93,17 +92,15 @@ typedef struct node* node;
     i_prop    (X,Y, intern,     LLVMTypeRef,      type) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,  debug) \
     i_prop    (X,Y, intern,     model,            ptr) \
-    i_prop    (X,Y, public,     subprocedure,     process) \
     i_prop    (X,Y, public,     bool,             finalized) \
     i_prop    (X,Y, intern,     model,            init_top) \
-    i_prop    (X,Y, intern,     member,           fn_init) \
-    i_method  (X,Y, public,     member,     initializer) \
+    i_prop    (X,Y, public,     function,         fn_init) \
+    i_method  (X,Y, public,     function,   initializer) \
     i_method  (X,Y, public,     model,      pointer) \
     i_method  (X,Y, public,     bool,       has_scope) \
     i_method  (X,Y, public,     none,       process_finalize) \
     i_method  (X,Y, public,     model,      alias,              object, reference, array) \
     i_method  (X,Y, public,     none,       finalize) \
-    i_method  (X,Y, public,     none,       preprocess) \
     i_method  (X,Y, public,     member,     convertible,   model) \
     i_method  (X,Y, public,     member,     castable,      model) \
     i_method  (X,Y, public,     member,     constructable, model) \
@@ -144,7 +141,6 @@ declare_class(format_attr)
     i_prop(X,Y, public,     bool,                   is_global_ctr) \
     i_prop(X,Y, public,     bool,                   is_init) \
     i_prop(X,Y, public,     bool,                   va_args) \
-    i_prop(X,Y, public,     bool,                   is_preprocessed) \
     i_prop(X,Y, public,     arguments,              args) \
     i_prop(X,Y, public,     record,                 payload) \
     i_prop(X,Y, public,     model,                  record) \
@@ -157,9 +153,7 @@ declare_class(format_attr)
     i_prop(X,Y, intern,     LLVMValueRef,           value) \
     i_prop(X,Y, intern,     LLVMTypeRef*,           arg_types) \
     i_prop(X,Y, intern,     num,                    arg_count) \
-    i_method(X,Y, public,   none,                   use) \
     i_override(X,Y, method, init) \
-    i_override(X,Y, method, preprocess) \
     i_override(X,Y, method, finalize)
 #ifndef function_intern
 #define function_intern isize(function)
@@ -298,7 +292,6 @@ declare_class(code)
     i_prop    (X,Y, public,     model,                  top) \
     i_prop    (X,Y, public,     array,                  lex) \
     i_prop    (X,Y, public,     map,                    base) \
-    i_prop    (X,Y, public,     member,                 module_init) \
     i_prop    (X,Y, intern,     LLVMExecutionEngineRef, jit) \
     i_prop    (X,Y, intern,     LLVMBasicBlockRef,      current_if_block) \
     i_prop    (X,Y, intern,     LLVMModuleRef,          module) \
@@ -314,7 +307,7 @@ declare_class(code)
     i_prop    (X,Y, public,     bool,                   left_hand) \
     i_method  (X,Y, public,     node,       default_value, model) \
     i_method  (X,Y, public,     node,       builder, subprocedure) \
-    i_method  (X,Y, public,     none,       build_initializer, member) \
+    i_method  (X,Y, public,     none,       build_initializer, function) \
     i_method  (X,Y, public,     node,       eelement,   node, object) \
     i_method  (X,Y, public,     none,       ecmp,       node, comparison, node, code, code) \
     i_method  (X,Y, public,     none,       ebranch,    code) \
@@ -351,7 +344,7 @@ declare_class(code)
     i_method  (X,Y, public,     node,       fn_return,      object) \
     i_method  (X,Y, public,     node,       is,             node, object) \
     i_method  (X,Y, public,     node,       inherits,       node, object) \
-    i_method  (X,Y, public,     member,     lookup,         object) \
+    i_method  (X,Y, public,     member,     lookup,         object, AType) \
     i_method  (X,Y, public,     model,      context_model,  AType) \
     i_method  (X,Y, public,     none,       include,        string) \
     i_method  (X,Y, public,     none,       llflag,         symbol, i32) \
@@ -362,7 +355,6 @@ declare_class(code)
     i_method  (X,Y, public,     model,      pop) \
     i_method  (X,Y, public,     model,      top) \
     i_method  (X,Y, public,     none,       write) \
-    i_method  (X,Y, public,     none,       build) \
     i_method  (X,Y, public,     model,      return_type) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
