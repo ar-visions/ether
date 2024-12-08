@@ -44,16 +44,15 @@ declare_enum(comparison)
     i_prop      (X,Y,  public,  A,          literal) \
     i_prop      (X,Y,  public,  model,      namespace) \
     i_method    (X,Y,  public,  AType,      get_type) \
-    i_method    (X,Y,  public,  bool,       eq,         cstr) \
-    i_method    (X,Y,  public,  num,        cmp,        cstr) \
     i_method    (X,Y,  public,  sz,         len) \
     i_method    (X,Y,  public,  string,     location) \
+    i_method    (X,Y,  public,  bool,       eq,  cstr) \
+    i_method    (X,Y,  public,  num,        cmp, cstr) \
     i_cast      (X,Y,  public,  cstr) \
     i_override  (X,Y,  method,  init) \
     i_override  (X,Y,  method,  compare) \
     i_override  (X,Y,  cast,    string) \
-    i_override  (X,Y,  cast,    bool) \
-    i_override  (X,Y,  method,  init)
+    i_override  (X,Y,  cast,    bool)
 #ifndef token_intern
 #define token_intern
 #endif
@@ -81,12 +80,15 @@ typedef struct node* node;
     i_prop    (X,Y, required,   model,            src) \
     i_prop    (X,Y, public,     reference,        ref) \
     i_prop    (X,Y, public,     array,            shape) \
+    i_prop    (X,Y, public,     bool,             is_map) \
+    i_prop    (X,Y, public,     bool,             is_array) \
+    i_prop    (X,Y, public,     bool,             is_user) \
     i_prop    (X,Y, public,     sz,               size) \
     i_prop    (X,Y, public,     sz,               alignment) \
     i_prop    (X,Y, public,     model,            rtype) \
     i_prop    (X,Y, public,     map,              members) \
     i_prop    (X,Y, public,     path,             from_include) \
-    i_prop    (X,Y, public,     object,           user) \
+    i_prop    (X,Y, public,     array,            body) \
     i_prop    (X,Y, intern,     LLVMScope,        scope) \
     i_prop    (X,Y, intern,     LLVMTypeRef,      type) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,  debug) \
@@ -142,6 +144,7 @@ declare_class(format_attr)
     i_prop(X,Y, public,     bool,                   is_global_ctr) \
     i_prop(X,Y, public,     bool,                   is_init) \
     i_prop(X,Y, public,     bool,                   va_args) \
+    i_prop(X,Y, public,     bool,                   is_preprocessed) \
     i_prop(X,Y, public,     arguments,              args) \
     i_prop(X,Y, public,     record,                 payload) \
     i_prop(X,Y, public,     model,                  record) \
@@ -171,10 +174,12 @@ declare_mod(function, model)
 #endif
 declare_mod(statements, model)
 
+typedef struct schematic* schematic;
+
 // for each field, f_* name-bound class, enum or primitive
 #define record_schema(X,Y) \
     i_prop    (X,Y, public, record, parent) \
-    i_prop    (X,Y, public, string, parent_name) \
+    i_prop    (X,Y, public, schematic, schema) \
     i_override(X,Y, method,         finalize) \
     i_override(X,Y, method,         init)
 #ifndef record_intern
@@ -183,7 +188,14 @@ declare_mod(statements, model)
 declare_mod(record, model)
 
 
-
+#define schematic_schema(X,Y) \
+    i_prop    (X,Y, public, record,     mdl) \
+    i_prop    (X,Y, public, string,     namespace) \
+    i_prop    (X,Y, public, interface,  access)
+#ifndef schematic_intern
+#define schematic_intern isize(schematic)
+#endif
+declare_class(schematic)
 
 
 #define class_schema(X,Y)
@@ -278,6 +290,7 @@ declare_class(code)
     i_prop    (X,Y, required,   path,                   source) \
     i_prop    (X,Y, required,   string,                 lang) \
     i_prop    (X,Y, required,   path,                   install) \
+    i_prop    (X,Y, public,     bool,                   delegate) \
     i_prop    (X,Y, public,     bool,                   no_build) \
     i_prop    (X,Y, public,     bool,                   with_debug) \
     i_prop    (X,Y, intern,     path,                   current_include) \
