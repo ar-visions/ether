@@ -599,24 +599,33 @@ void function_finalize(function fn) {
             push(args, argc);
             push(args, argv);
 
-            /// ether should have the basic types
-            /// its not a good idea to do this in silver when this is more 
-            /// 'basic' architecture of ether; ether modules would be compatible
-            /// with each other, and different initialization would break that
             function main_fn = function(
                 mod,            e,
                 name,           string("main"),
                 function_type,  A_TYPE_SMETHOD,
+                export,         true,
                 record,         null,
                 rtype,          lookup(e, string("int"), null)->mdl,
                 args,           args);
-            /// code similarly to below
             push(e, main_fn);
             fn_return(e, A_i32(255));
             pop(e);
-
             push_model(e, main_fn);
-            finalize(main_fn);
+
+            /// now we code the initializer
+            push(e, fn);
+            pairs (e->members, i) {
+                member mem = i->value;
+                // todo: reflection on member if public
+                if (mem->initializer) {
+                    build_initializer(e, mem);
+                } else {
+                    // we need a default(e, mem) call!
+                    //zero(e, mem);
+                }
+            }
+            fn_return(e, null);
+            pop (e);
 /*
     if (eq(fn->name, "main")) {
         verify(!e->delegate,
@@ -661,19 +670,6 @@ void function_finalize(function fn) {
         pop (e);
     }
 */
-            push(e, fn);
-            pairs (e->members, i) {
-                member mem = i->value;
-                // todo: reflection on member if public
-                if (mem->initializer) {
-                    build_initializer(e, mem);
-                } else {
-                    // we need a default(e, mem) call!
-                    //zero(e, mem);
-                }
-            }
-            fn_return(e, null);
-            pop (e);
         }
     }
 }
@@ -708,13 +704,13 @@ void function_init(function fn) {
 
     fn->type  = LLVMFunctionType(fn->rtype->type, fn->arg_types, fn->arg_count, fn->va_args);
     fn->value = LLVMAddFunction(fn->mod->module, fn->name->chars, fn->type);
-    bool is_extern = !!fn->from_include;
+    bool is_extern = !!fn->from_include || fn->export;
     
     //verify(fmem, "function member access not found");
     LLVMSetLinkage(fn->value,
         is_extern ? LLVMExternalLinkage : LLVMInternalLinkage);
 
-    if (!is_extern) {
+    if (!is_extern || fn->export) {
         // Create function debug info
         LLVMMetadataRef subroutine = LLVMDIBuilderCreateSubroutineType(
             e->dbg_builder,
@@ -956,8 +952,6 @@ member member_resolve(member mem, string name) {
     return null;
 }
 
-node ether_operand(ether e, object op);
-
 void member_set_value(member mem, object value) {
     node n = operand(mem->mod, value);
     mem->mdl   = n->mdl;
@@ -1082,7 +1076,34 @@ void member_set_model(member mem, model mdl) {
 node ether_operand(ether e, object op) {
     if (!op) return value(emodel("void"), null);
 
-         if (instanceof(op,   node)) return op;
+    if      (instanceof(op,  array)) {
+        /// the array must all be the same type
+        /// we should intelligently construct from a const array, or node-by-node evaluation
+        /// that is, if the nodes themselves are simple constants we may create that
+        array a     = (array)op;
+        num   count = len(a);
+        verify(count > 0, "invalid count; cannot determine type");
+        node  f     = operand(e, a->elements[0]);
+        num   i     = 0;
+        node  r     = alloc(e, f->mdl, count, 0);
+        each(a, object, element) {
+            node         expr     = operand(e, element);
+            verify(f->mdl == expr->mdl, "inconsistent types");
+
+            LLVMValueRef idx      = LLVMConstInt(LLVMInt32Type(), i++, 0); // pointer to element
+            LLVMValueRef elem_ptr = LLVMBuildGEP2(
+                e->builder,
+                f->mdl->type,
+                r->value,  // Base pointer from allocation
+                &idx,
+                1,
+                "array_elem"
+            );
+            LLVMBuildStore(e->builder, expr->value, elem_ptr);
+        }
+        return r;
+    }
+    else if (instanceof(op,   node)) return op;
     else if (instanceof(op,     u8)) return uint_value(8,  op);
     else if (instanceof(op,    u16)) return uint_value(16, op);
     else if (instanceof(op,    u32)) return uint_value(32, op);
@@ -1141,34 +1162,16 @@ node ether_default_value(ether e, model mdl) {
     return create(e, mdl, null);
 }
 
-node ether_alloc(ether e, model imdl) {
-    model        mdl        = imdl->src;
+node ether_alloc(ether e, model mdl, num count, num pre_alloc) {
+    if (pre_alloc < count) pre_alloc = count; 
     LLVMValueRef size_A     = LLVMConstInt(LLVMInt64Type(), 32, false);
     LLVMValueRef size_mdl   = LLVMConstInt(LLVMInt64Type(), mdl->size, false);
     LLVMValueRef total_size = LLVMBuildAdd(e->builder, size_A, size_mdl, "total-size");
     LLVMValueRef alloc      = LLVMBuildArrayMalloc(e->builder, LLVMInt8Type(), total_size, "malloc-A-mdl");
     LLVMValueRef zero       = LLVMConstInt(LLVMInt8Type(), 0, false);  // Value to fill with
     LLVMBuildMemSet(e->builder, alloc, zero, total_size, 0);
-    LLVMValueRef user       = LLVMBuildGEP2(e->builder, imdl->type, alloc, &size_A, 1, "user-mdl");
-    return value(imdl, user);
-}
-
-
-node ether_obj(ether e, model mdl, object args) {
-    node a = operand(e, args);
-    member mfn = convertible(a->mdl, mdl);
-    verify(mfn, "could not find suitable conversion for %o to %o", a->mdl->name, mdl->name);
-    function fn = instanceof(mfn->mdl, function);
-    node n = null;
-    if (fn->function_type & A_TYPE_CONSTRUCT) {
-        /// this means we are calling constructor and must do so after alloc'ing ourself
-        n = alloc(e, mdl); 
-    } else {
-        verify(fn->function_type & A_TYPE_CAST, "expected cast");
-        /// we call the cast function (a = singular mdl instance) to receive our object of imdl
-        n = fn_call(e, fn, array_of(null, a, null));
-    }
-    return n;
+    LLVMValueRef user       = LLVMBuildGEP2(e->builder, mdl->type, alloc, &size_A, 1, "user-mdl");
+    return value(pointer(mdl), user);
 }
 
 node ether_stack(ether e, model mdl) {
@@ -1214,7 +1217,7 @@ node ether_create(ether e, model mdl, object args) {
         n     = stack(e, mdl); 
         perform_assign = !!args;
     } else if (mdl->ref == reference_pointer) {
-        n     = alloc(e, mdl);
+        n     = alloc(e, mdl->src, 1, 1);
     } else {
         fault("not implemented");
     }

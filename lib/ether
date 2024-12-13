@@ -143,6 +143,7 @@ declare_class(format_attr)
     i_prop(X,Y, public,     bool,                   va_args) \
     i_prop(X,Y, public,     arguments,              args) \
     i_prop(X,Y, public,     record,                 payload) \
+    i_prop(X,Y, public,     bool,                   export) \
     i_prop(X,Y, public,     model,                  record) \
     i_prop(X,Y, public,     model,                  imdl) \
     i_prop(X,Y, public,     member,                 target) \
@@ -349,8 +350,7 @@ declare_class(code)
     i_method  (X,Y, public,     none,       include,        string) \
     i_method  (X,Y, public,     none,       llflag,         symbol, i32) \
     i_method  (X,Y, public,     model,      push,     model) \
-    i_method  (X,Y, public,     node,       alloc,    model) \
-    i_method  (X,Y, public,     node,       obj,      model, object) \
+    i_method  (X,Y, public,     node,       alloc,    model, num, num) \
     i_method  (X,Y, public,     node,       stack,    model) \
     i_method  (X,Y, public,     model,      pop) \
     i_method  (X,Y, public,     model,      top) \
