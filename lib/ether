@@ -76,9 +76,10 @@ declare_enum(reference)
 #define model_schema(X,Y)\
     i_prop    (X,Y, required,   ether,            mod) \
     i_prop    (X,Y, public,     token,            name) \
+    i_prop    (X,Y, intern,     array,            aliases) \
     i_prop    (X,Y, required,   model,            src) \
     i_prop    (X,Y, public,     reference,        ref) \
-    i_prop    (X,Y, public,     array,            shape) \
+    i_prop    (X,Y, public,     object,           shape) \
     i_prop    (X,Y, public,     bool,             is_map) \
     i_prop    (X,Y, public,     bool,             is_array) \
     i_prop    (X,Y, public,     bool,             is_user) \
@@ -146,6 +147,7 @@ declare_class(format_attr)
     i_prop(X,Y, public,     bool,                   export) \
     i_prop(X,Y, public,     model,                  record) \
     i_prop(X,Y, public,     model,                  imdl) \
+    i_prop(X,Y, public,     bool,                   single_expr) \
     i_prop(X,Y, public,     member,                 target) \
     i_prop(X,Y, public,     member,                 main_member) \
     i_prop(X,Y, public,     AFlag,                  function_type) \

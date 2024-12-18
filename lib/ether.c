@@ -1127,8 +1127,20 @@ node ether_operand(ether e, object op) {
 }
 
 model model_alias(model src, object name, reference r, array shape) {
-    record rec = instanceof(src, record);
+    verify(instanceof(src, model), "model_alias: expected model source");
+
+    if (!src->aliases) src->aliases = new(array);
     
+    /// lookup alias in identity cache
+    string s_name = cast(string, name);
+    each(src->aliases, model, mdl) {
+        string s_name_alias = cast(string, mdl->name);
+        if (compare(s_name_alias, s_name) == 0 && (mdl->shape == shape || (compare(mdl->shape, shape)))) {
+            return mdl;
+        }
+    }
+
+    record rec = instanceof(src, record);
     if (rec) {
         verify(rec->type, "no type on record; need to 'build-record' first");
     }
@@ -1155,6 +1167,14 @@ model model_alias(model src, object name, reference r, array shape) {
         shape,  shape,
         ref,    r,
         src,   src);
+
+    if (shape && instanceof(shape, model))
+        ref->is_map = true;
+    else if (shape && instanceof(shape, array))
+        ref->is_array = true;
+
+    /// cache alias
+    push(src->aliases, ref);
     return ref;
 }
 
