@@ -82,6 +82,9 @@ declare_enum(reference)
     i_prop    (X,Y, public,     object,           shape) \
     i_prop    (X,Y, public,     bool,             is_map) \
     i_prop    (X,Y, public,     bool,             is_array) \
+    i_prop    (X,Y, public,     i64,              element_count) \
+    i_prop    (X,Y, public,     i64,              top_stride) \
+    i_prop    (X,Y, public,     array,            strides) \
     i_prop    (X,Y, public,     bool,             is_user) \
     i_prop    (X,Y, public,     sz,               size) \
     i_prop    (X,Y, public,     sz,               alignment) \
@@ -99,9 +102,9 @@ declare_enum(reference)
     i_method  (X,Y, public,     function,   initializer) \
     i_method  (X,Y, public,     model,      pointer) \
     i_method  (X,Y, public,     bool,       has_scope) \
-    i_method  (X,Y, public,     none,       process_finalize) \
+    i_method  (X,Y, public,     none,       process_finalize, member) \
     i_method  (X,Y, public,     model,      alias,              object, reference, array) \
-    i_method  (X,Y, public,     none,       finalize) \
+    i_method  (X,Y, public,     none,       finalize, member) \
     i_method  (X,Y, public,     member,     convertible,   model) \
     i_method  (X,Y, public,     member,     castable,      model) \
     i_method  (X,Y, public,     member,     constructable, model) \
@@ -156,6 +159,7 @@ declare_class(format_attr)
     i_prop(X,Y, intern,     LLVMValueRef,           value) \
     i_prop(X,Y, intern,     LLVMTypeRef*,           arg_types) \
     i_prop(X,Y, intern,     num,                    arg_count) \
+    i_method(X,Y, public,   none,                   use) \
     i_override(X,Y, method, init) \
     i_override(X,Y, method, finalize)
 #ifndef function_intern
@@ -233,7 +237,6 @@ declare_mod(uni, record, model)
     i_prop    (X,Y, public,     num,                    line) \
     i_prop    (X,Y, public,     num,                    column) \
     i_prop    (X,Y, public,     bool,                   loaded) \
-    i_method  (X,Y, public,     object,                 const_value) \
     i_prop    (X,Y, intern,     LLVMValueRef,           value)
 #ifndef node_intern
 #define node_intern isize(node)
@@ -317,9 +320,9 @@ declare_class(code)
     i_method  (X,Y, public,     member,     compatible,     record, string, AFlag, array) \
     i_method  (X,Y, public,     none,       push_member,    member) \
     i_method  (X,Y, public,     member,     push_model,     model) \
-    i_method  (X,Y, public,     node,       operand,        object) \
+    i_method  (X,Y, public,     node,       operand,        object, model) \
     i_method  (X,Y, public,     node,       op,             OPType, string, object, object) \
-    i_method  (X,Y, public,     node,       load,           node) \
+    i_method  (X,Y, public,     node,       load,           member) \
     i_method  (X,Y, public,     node,       offset,         node, object) \
     i_method  (X,Y, public,     node,       if_else,        array, array, subprocedure, subprocedure) \
     i_method  (X,Y, public,     node,       ternary,        node, node, node) \
@@ -352,8 +355,6 @@ declare_class(code)
     i_method  (X,Y, public,     none,       include,        string) \
     i_method  (X,Y, public,     none,       llflag,         symbol, i32) \
     i_method  (X,Y, public,     model,      push,     model) \
-    i_method  (X,Y, public,     node,       alloc,    model, num, num) \
-    i_method  (X,Y, public,     node,       stack,    model) \
     i_method  (X,Y, public,     model,      pop) \
     i_method  (X,Y, public,     model,      top) \
     i_method  (X,Y, public,     none,       write) \
