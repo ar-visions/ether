@@ -155,6 +155,7 @@ declare_class(format_attr)
     i_prop(X,Y, public,     member,                 main_member) \
     i_prop(X,Y, public,     AFlag,                  function_type) \
     i_prop(X,Y, intern,     format_attr,            format) \
+    i_prop(X,Y, intern,     LLVMMetadataRef,        last_dbg) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
     i_prop(X,Y, intern,     LLVMValueRef,           value) \
     i_prop(X,Y, intern,     LLVMTypeRef*,           arg_types) \
@@ -298,6 +299,7 @@ declare_class(code)
     i_prop    (X,Y, public,     model,                  top) \
     i_prop    (X,Y, public,     array,                  lex) \
     i_prop    (X,Y, public,     map,                    base) \
+    i_prop    (X,Y, public,     node,                   last_return) \
     i_prop    (X,Y, intern,     LLVMExecutionEngineRef, jit) \
     i_prop    (X,Y, intern,     LLVMBasicBlockRef,      current_if_block) \
     i_prop    (X,Y, intern,     LLVMModuleRef,          module) \

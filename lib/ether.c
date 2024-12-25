@@ -53,7 +53,7 @@ member ether_lookup(ether e, object name, AType type);
 member ether_push_model(ether e, model mdl) {
     bool is_func = instanceof(mdl, function) != null;
     member mem   = member(
-        mod, e, mdl, mdl, name, mdl->name,
+        mod, e, mdl, is_class(mdl) ? pointer(mdl) : mdl, name, mdl->name,
         is_func,  is_func,
         is_type, !is_func);
     push_member(e, mem);
@@ -349,7 +349,7 @@ bool model_inherits(model mdl, model base) {
 /// we allocate all pointer models this way
 model model_pointer(model mdl) {
     if (!mdl->ptr)
-        mdl->ptr = model(mod, mdl->mod, name, mdl->name, ref, reference_pointer,
+        mdl->ptr = model(mod, mdl->mod, name, mdl->name, ref, reference_pointer, members, mdl->members,
                         src, mdl, type, mdl->type);
     return mdl->ptr;
 }
@@ -520,6 +520,7 @@ void function_finalize(function fn, member mem) {
         return;
 
     index = 0;
+    push(e, fn);
     if (fn->target) {
         LLVMMetadataRef meta = LLVMDIBuilderCreateParameterVariable(
             e->dbg_builder,          // DIBuilder reference
@@ -668,6 +669,7 @@ void function_finalize(function fn, member mem) {
 */
         }
     }
+    pop(e);
 }
 
 void function_init(function fn) {
@@ -714,7 +716,8 @@ void function_use(function fn) {
     if (fn->target) {
         fn->target->value = LLVMGetParam(fn->value, index++);
         fn->target->is_arg = true;
-        set(fn->members, str("this"), fn->target); /// here we have the LLVM Value Ref of the first arg, or, our instance pointer
+        if (!fn->is_init)
+            set(fn->members, str("this"), fn->target); /// here we have the LLVM Value Ref of the first arg, or, our instance pointer
     }
     each(fn->args, member, arg) {
         arg->value = LLVMGetParam(fn->value, index++);
@@ -758,6 +761,8 @@ void function_use(function fn) {
 }
 
 void record_finalize(record rec, member mem) {
+    if (rec->finalized)
+        return;
     int   total = 0;
     ether e     = rec->mod;
     array a     = array(32);
@@ -808,18 +813,7 @@ void record_finalize(record rec, member mem) {
                     mem->mdl->debug        // The LLVMMetadataRef for the member's type (created earlier)
                 );
             }
-            if (eq(mem->name, "a")) {
-                int test = 1;
-                test++;
-            }
-            int something = 0;
-
             model_process_finalize(mem->mdl, mem);
-            if (!mem->mdl->type) {
-                //model_process_finalize(mem->mdl);
-                something = 1;
-                verify(mem->mdl->type, "expected resolution on type");
-            }
             member_types[index]   = mem->mdl->type;
             int abi_size = LLVMABISizeOfType(target_data, mem->mdl->type);
             member_debug[index++] = mem->debug;
@@ -866,8 +860,6 @@ void record_finalize(record rec, member mem) {
     int al = LLVMABIAlignmentOfType(target_data, rec->type);
     
     LLVMMetadataRef prev = rec->debug;
-
-    // mdl is required on member
     rec->debug = LLVMDIBuilderCreateStructType(
         e->dbg_builder,                     // Debug builder
         e->top->scope,                // Scope (module or file)
@@ -1042,9 +1034,7 @@ void member_set_model(member mem, model mdl) {
         bool is_global_space = false;
         if (!mem->value) {
             mem->value = LLVMAddGlobal(e->module, type, name); // its created here (a-map)
-            LLVMSetGlobalConstant(mem->value, mem->is_const);
-            bool is_const = LLVMIsGlobalConstant(mem->value);
-            bool is_const2 = LLVMIsConstant(mem->value);
+            //LLVMSetGlobalConstant(mem->value, mem->is_const);
             LLVMSetInitializer(mem->value, LLVMConstNull(type));
             is_global_space = true; 
         }
@@ -1080,16 +1070,7 @@ void member_set_model(member mem, model mdl) {
         literal, l, mdl, emodel(stringify(f##b)), \
         value, LLVMConstReal(emodel(stringify(f##b))->type, *(f##b*)l))
 
-node ether_operand(ether e, object op, model src_model) {
-    if (!op) return value(emodel("void"), null);
-
-    if      (instanceof(op,  array)) {
-        verify(src_model != null, "expected src_model with array data");
-        return create(e, src_model, op);
-    }
-
-    verify(src_model == null, "unexpected src_model in operand");
-
+node operand_primitive(ether e, object op) {
          if (instanceof(op,   node)) return op;
     else if (instanceof(op,     u8)) return uint_value(8,  op);
     else if (instanceof(op,    u16)) return uint_value(16, op);
@@ -1107,10 +1088,20 @@ node ether_operand(ether e, object op, model src_model) {
         LLVMValueRef cast_i8 = LLVMBuildBitCast(e->builder, gs, LLVMPointerType(LLVMInt8Type(), 0), "cast_symbol");
         return node(mod, e, value, cast_i8, mdl, emodel("symbol"), literal, op);
     }
-    else {
-        error("unsupported type in ether_add");
-        return NULL;
+    error("unsupported type in ether_operand");
+    return NULL;
+}
+
+node ether_operand(ether e, object op, model src_model) {
+    if (!op) return value(emodel("void"), null);
+
+    if (instanceof(op,  array)) {
+        verify(src_model != null, "expected src_model with array data");
+        return create(e, src_model, op);
     }
+
+    node r = operand_primitive(e, op);
+    return src_model ? convert(e, r, src_model) : r;
 }
 
 model model_alias(model src, object name, reference r, array shape) {
@@ -1221,7 +1212,7 @@ node ether_create(ether e, model mdl, object args) {
     array        shape      = mdl->shape;
     i64          slen       = shape ? len(shape) : 0;
     num          count      = mdl->element_count ? mdl->element_count : 1;
-    bool         use_stack  = (mdl->ref == reference_value) || is_primitive(mdl);
+    bool         use_stack  = mdl->ref == reference_value;
     LLVMValueRef size_A     = LLVMConstInt(LLVMInt64Type(), 32, false);
     LLVMValueRef size_mdl   = LLVMConstInt(LLVMInt64Type(), mdl->size * count, false);
     LLVMValueRef total_size = use_stack ? size_mdl : LLVMBuildAdd(e->builder, size_A, size_mdl, "total-size");
@@ -1260,22 +1251,23 @@ node ether_create(ether e, model mdl, object args) {
 
     /// iterate through args in map, setting values
     if (imap) {
-        verify(mdl->ref == reference_pointer, "model mismatch");
+        verify(is_record(mdl), "model mismatch");
         verify(instanceof(mdl, record), "model not a record, and given a map"); ///
         map used  = map();
         int total = 0;
         pairs(imap, i) {
             string arg_name  = instanceof(i->key, string);
             node   arg_value = instanceof(i->value, node);
-            verify (!contains(used, arg_name), "duplicate argument: %o", arg_name);
             set    (used, arg_name, A_bool(true));
             member m = get(mdl->members, arg_name);
             verify(m, "member %o not found on record: %o", arg_name, mdl->name);
+            node   arg_conv = convert(e, arg_value, m->mdl);
+
             LLVMValueRef ptr = LLVMBuildStructGEP2(e->builder,
                 mdl->type, n->value, m->index, arg_name->chars);
             //arg_value->value = LLVMConstInt(LLVMInt64Type(), 44, 0);
             // for objects, we must increment the ref, too [call the method A_hold]
-            LLVMBuildStore(e->builder, arg_value->value, ptr);
+            LLVMBuildStore(e->builder, arg_conv->value, ptr);
             total++;
         }
         pairs(mdl->members, i) {
@@ -1399,7 +1391,7 @@ node ether_if_else(ether e, array conds, array exprs, subprocedure cond_builder,
         // Build the condition
         object cond_obj = conds->elements[i];
         node cond_result = invoke(cond_builder, cond_obj);  // Silver handles the actual condition parsing and building
-        LLVMValueRef condition = ether_convert(e, cond_result, emodel("bool"))->value;
+        LLVMValueRef condition = convert(e, cond_result, emodel("bool"))->value;
 
         // Set the sconditional branch
         LLVMBuildCondBr(e->builder, condition, then_block, else_block);
@@ -1476,10 +1468,7 @@ node ether_offset(ether e, node n, object offset) {
 }
 
 node ether_load(ether e, member mem) {
-    LLVMTypeRef  type     = LLVMTypeOf(mem->value);
-    LLVMTypeKind kind     = LLVMGetTypeKind(type);
-    bool         is_const = mem && LLVMIsConstant(mem->value);
-    bool         is_ptr   = kind == LLVMPointerTypeKind;
+    if (!instanceof(mem, member)) return mem; // for node values, no load required
     model        mdl      = mem->mdl;
     LLVMValueRef ptr      = mem->value;
 
@@ -1752,30 +1741,52 @@ member ether_lookup(ether e, object name, AType mdl_type_filter) {
 }
 
 model ether_push(ether e, model mdl) {
+
+    function fn_prev = context_model(e, typeid(function));
+    if (fn_prev) {
+        fn_prev->last_dbg = LLVMGetCurrentDebugLocation2(e->builder);
+    }
+
     verify(mdl, "no context given");
+    function fn = instanceof(mdl, function);
+    if (fn)
+        function_use(fn);
+
     push(e->lex, mdl);
     e->top = mdl;
-    function fn = instanceof(mdl, function);
+    
     if (fn) {
-        function_use(fn);
         LLVMPositionBuilderAtEnd(e->builder, fn->entry);
         if (LLVMGetBasicBlockTerminator(fn->entry) == NULL) {
-            // set debug location
             LLVMMetadataRef loc = LLVMDIBuilderCreateDebugLocation(
                 e->module_ctx, fn->name->line, 0, fn->scope, NULL);
             LLVMSetCurrentDebugLocation2(e->builder, loc);
-        }
+        } else if (fn->last_dbg)
+            LLVMSetCurrentDebugLocation2(e->builder, fn->last_dbg);
     } 
     return mdl;
 }
 
 
 model ether_pop(ether e) {
+    function fn_prev = context_model(e, typeid(function));
+    if (fn_prev)
+        fn_prev->last_dbg = LLVMGetCurrentDebugLocation2(e->builder);
+
     pop(e->lex);
+    
+    function fn = context_model(e, typeid(function));
+    if (fn && fn != fn_prev) {
+        LLVMPositionBuilderAtEnd(e->builder, fn->entry);
+        //if (!instanceof(fn->imdl, ether))
+        LLVMSetCurrentDebugLocation2(e->builder, fn->last_dbg);
+    }
+
     if (len(e->lex))
         e->top = last(e->lex);
     else
         e->top = null;
+    
     return e->top;
 }
 
@@ -2045,13 +2056,15 @@ function model_initializer(model mdl) {
     ether    e       = mdl->mod;
     model    rtype   = emodel("void");
     string   fn_name = format("_%o_init", mdl->name);
+    record   rec     = instanceof(mdl, record);
     function fn_init = function(
         mod,      mdl->mod,
         name,     fn_name,
         record,   mdl->type ? mdl : null,
         imdl,     mdl,
+        is_init,  true,
         rtype,    rtype,
-        members,  e->top->members, /// share the same members (beats filtering the list)
+        members,  rec ? e->top->members : e->top->members, /// share the same members (beats filtering the list)
         args,     arguments());
 
     mdl->fn_init = fn_init;
@@ -2119,14 +2132,16 @@ void ether_llflag(ether e, symbol flag, i32 ival) {
 
 void ether_write(ether e) {
     cstr err = NULL;
-    if (LLVMVerifyModule(e->module, LLVMPrintMessageAction, &err))
-        fault("error verifying module");
 
     path ll = form(path, "%o.ll", e->name);
     path bc = form(path, "%o.bc", e->name);
+
     if (LLVMPrintModuleToFile(e->module, cstring(ll), &err))
         fault("LLVMPrintModuleToFile failed");
 
+    if (LLVMVerifyModule(e->module, LLVMPrintMessageAction, &err))
+        fault("error verifying module");
+    
     if (LLVMWriteBitcodeToFile(e->module, cstring(bc)) != 0)
         fault("LLVMWriteBitcodeToFile failed");
 }
@@ -2496,7 +2511,7 @@ node ether_fn_return(ether e, object o) {
 
     if (!o) return value(fn->rtype, LLVMBuildRetVoid(e->builder));
 
-    node conv = ether_convert(e, operand(e, o, null), fn->rtype);
+    node conv = convert(e, operand(e, o, null), fn->rtype);
     return value(fn->rtype, LLVMBuildRet(e->builder, conv->value));
 }
 
@@ -2555,7 +2570,7 @@ node ether_fn_call(ether e, member fn_mem, array args) {
             member    f_arg = get(fn->args, index);
             AType     vtype = isa(value);
             node      op    = operand(e, value, null);
-            node      conv  = ether_convert(e, op, f_arg ? f_arg->mdl : op->mdl);
+            node      conv  = convert(e, op, f_arg ? f_arg->mdl : op->mdl);
             
             LLVMValueRef vr = arg_values[index] = conv->value;
             //print("ether_fcall: %o arg[%i]: vr: %p, type: %s", fn_mem->name, index, vr, LLVMPrintTypeToString(LLVMTypeOf(vr)));
@@ -2585,7 +2600,7 @@ node ether_fn_call(ether e, member fn_mem, array args) {
                 printf("arg type 1: %s\n", LLVMPrintTypeToString(LLVMTypeOf(n_arg->value)));
                 node  arg      = operand(e, n_arg, null);
                 printf("arg type: %s\n", LLVMPrintTypeToString(LLVMTypeOf(arg->value)));
-                node  conv     = ether_convert(e, arg, arg_type); 
+                node  conv     = convert(e, arg, arg_type); 
                 arg_values[arg_idx + soft_args] = conv->value;
                 soft_args++;
                 index    ++;
@@ -2621,7 +2636,7 @@ node ether_op(ether e, OPType optype, string op_name, object L, object R) {
                 verify(len(fn->args) == 1, "expected 1 argument for operator method");
                 /// convert argument and call method
                 model  arg_expects = get(fn->args, 0);
-                node  conv = ether_convert(e, Ln, arg_expects);
+                node  conv = convert(e, Ln, arg_expects);
                 array args = array_of(null, conv, null);
                 verify(mL, "mL == null");
                 member fmem = member(mod, e, mdl, Lt->mdl, name, Lt->name, target_member, mL);
