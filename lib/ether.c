@@ -92,8 +92,15 @@ void ether_push_member(ether e, member mem) {
         list = array(32);
         set(members, key, list);
     }
+    if (eq(mem->name, "a-class")) {
+        int test = 2;
+        test += 2;
+    }
     set(members, str(mem->name->chars), mem);
     set_model(mem, mem->mdl);
+
+    if (mem->mdl->from_include)
+        finalize(mem->mdl, mem);
 }
 
 #define no_target null
@@ -190,17 +197,6 @@ void print_ctx(ether e, string msg) {
 }
 
 #define print_context(msg, ...) print_ctx(e, format(msg, ## __VA_ARGS__))
-
-void model_process_finalize(model mdl, member mem) { // nobody calls finalize except us, here
-    ether e = mdl->mod;
-    if (mdl->finalized) return;
-    mdl->finalized = true;
-    function fn = instanceof(mdl, function);
-
-    /// todo: call finalize when we should (after we implement?)
-    finalize(mdl, mem); /// 'process' is too coupled in function
-
-}
 
 /// 'record' does things with this, as well as 'function'
 void model_finalize(model mdl, member mem) {
@@ -349,8 +345,10 @@ bool model_inherits(model mdl, model base) {
 /// we allocate all pointer models this way
 model model_pointer(model mdl) {
     if (!mdl->ptr)
-        mdl->ptr = model(mod, mdl->mod, name, mdl->name, ref, reference_pointer, members, mdl->members,
-                        src, mdl, type, mdl->type);
+        mdl->ptr = model(
+            mod, mdl->mod, name, mdl->name,
+            ref, reference_pointer, members, mdl->members,
+            body, mdl->body, src, mdl, type, mdl->type);
     return mdl->ptr;
 }
 
@@ -511,6 +509,8 @@ bool is_module_level(model mdl) {
 }
 
 void function_finalize(function fn, member mem) {
+    if (fn->finalized) return;
+
     ether e       = fn->mod;
     int   index   = 0;
     bool  is_init = e->fn_init && e->fn_init == fn;
@@ -587,10 +587,15 @@ void function_finalize(function fn, member mem) {
         } else {
             /// code main, which is what calls this initializer method
             arguments    args    = arguments();
-            member       argc    = emember(lookup(e, string("int"), null)->mdl,     string("argc"));
-            member       argv    = emember(lookup(e, string("symbols"), null)->mdl, string("argv"));
+            member argc = member(
+                mod, e, mdl, lookup(e, string("int"), null)    ->mdl,
+                name, string("argc"), is_arg, true);
+            member argv = member(
+                mod, e, mdl, lookup(e, string("symbols"), null)->mdl,
+                name, string("argv"), is_arg, true);
             push(args, argc);
             push(args, argv);
+
             function main_fn = function(
                 mod,            e,
                 name,           string("main"),
@@ -599,7 +604,9 @@ void function_finalize(function fn, member mem) {
                 record,         null,
                 rtype,          lookup(e, string("int"), null)->mdl,
                 args,           args);
+
             push(e, main_fn);
+
             fn_call(e, mem, null);
             fn_return(e, A_i32(255));
             pop(e);
@@ -691,7 +698,8 @@ void function_use(function fn) {
                 isa(fn->record) == typeid(class),
             "target [incoming] must be record type (struct / class) -- it is then made pointer-to record");
         
-        fn->target = member(mod, e, mdl, pointer(fn->record), name, string("this"));
+        /// we set is_arg to prevent registration of global
+        fn->target = member(mod, e, mdl, pointer(fn->record), name, string("this"), is_arg, true);
         arg_types[index++] = fn->target->mdl->type;
     }
 
@@ -716,8 +724,7 @@ void function_use(function fn) {
     if (fn->target) {
         fn->target->value = LLVMGetParam(fn->value, index++);
         fn->target->is_arg = true;
-        if (!fn->is_init)
-            set(fn->members, str("this"), fn->target); /// here we have the LLVM Value Ref of the first arg, or, our instance pointer
+        set(fn->members, str("this"), fn->target); /// here we have the LLVM Value Ref of the first arg, or, our instance pointer
     }
     each(fn->args, member, arg) {
         arg->value = LLVMGetParam(fn->value, index++);
@@ -761,13 +768,22 @@ void function_use(function fn) {
 }
 
 void record_finalize(record rec, member mem) {
+    if (eq(rec->name, "A_TYPE")) {
+        int test = 2;
+        test += 2;
+    }
     if (rec->finalized)
         return;
+    if (eq(rec->name, "a-class")) {
+        int test = 2;
+        test += 2;
+    }
+
     int   total = 0;
     ether e     = rec->mod;
     array a     = array(32);
     record r = rec;
-
+    class  is_class = instanceof(rec, class);
     rec->finalized = true;
     // this must now work with 'schematic' model
     // delegation namespace
@@ -798,7 +814,7 @@ void record_finalize(record rec, member mem) {
                 continue;
             /// in poly classes, we will encounter the same member twice
             if (!mem->debug) {
-                model_process_finalize(mem->mdl, mem);
+                finalize(mem->mdl, mem);
                 mem->debug = LLVMDIBuilderCreateMemberType(
                     e->dbg_builder,              // LLVMDIBuilderRef
                     e->top->scope,         // Scope of the member (can be the struct, class or base module)
@@ -813,7 +829,7 @@ void record_finalize(record rec, member mem) {
                     mem->mdl->debug        // The LLVMMetadataRef for the member's type (created earlier)
                 );
             }
-            model_process_finalize(mem->mdl, mem);
+            finalize(mem->mdl, mem);
             member_types[index]   = mem->mdl->type;
             int abi_size = LLVMABISizeOfType(target_data, mem->mdl->type);
             member_debug[index++] = mem->debug;
@@ -852,8 +868,21 @@ void record_finalize(record rec, member mem) {
         pairs(r->members, i) {
             member mem = i->value;
             if (instanceof(mem->mdl, function))
-                model_process_finalize(mem->mdl, mem);
+                finalize(mem->mdl, mem);
         }
+    }
+
+    /// build initializers for silver records
+    if (!rec->from_include) {
+        function fn_init = initializer(rec);
+        push(e, fn_init);
+        pairs(rec->members, i) {
+            member mem = i->value;
+            if (mem->initializer)
+                build_initializer(e, mem);
+        }
+        fn_return(e, null);
+        pop(e);
     }
     
     int sz = LLVMABISizeOfType     (target_data, rec->type);
@@ -885,6 +914,14 @@ void record_finalize(record rec, member mem) {
 
 void record_init(record rec) {
     ether e = rec->mod;
+    if (eq(rec->name, "a-class")) {
+        int test = 2;
+        test += 2;
+    }
+    if (eq(rec->name, "A_TYPE")) {
+        int test = 2;
+        test += 2;
+    }
     rec->type = LLVMStructCreateNamed(LLVMGetGlobalContext(), rec->name->chars);
 
     // Create a forward declaration for the struct's debug info
@@ -904,7 +941,7 @@ void record_init(record rec) {
         0                                    // Size and alignment (initially 0, finalized later)
     );
     if (len(rec->members)) {
-        model_process_finalize(rec, null); /// cannot know member here, but record-based methods need not know this arg (just functions)
+        finalize(rec, null); /// cannot know member here, but record-based methods need not know this arg (just functions)
     }
 }
 
@@ -921,8 +958,8 @@ member member_resolve(member mem, string name) {
 
             LLVMValueRef actual_ptr = mem->is_arg ? mem->value : LLVMBuildLoad2(
                 e->builder,
-                LLVMPointerType(base->type, 0), // The type of the loaded value
-                mem->value,                     // The stack-allocated pointer
+                pointer(base)->type,
+                mem->value,
                 "load_actual_ptr"
             );
 
@@ -981,6 +1018,9 @@ void member_set_model(member mem, model mdl) {
     function ctx_fn  = ether_context_model(e, typeid(function));
     bool     is_user = mdl->is_user; /// i.e. import from silver; does not require processing here
     bool     is_init = false;
+    record   rec     = ether_context_model(e, typeid(class));
+    if (!rec) rec = ether_context_model(e, typeid(structure));
+
     if (ctx_fn && ctx_fn->imdl) {
         is_init = true;
         ctx_fn = null;
@@ -1025,7 +1065,7 @@ void member_set_model(member mem, model mdl) {
             LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
             LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
             firstInstr);
-    } else if (!is_user && !ctx_fn && !mem->is_type && !e->current_include && is_init && !mem->is_decl) {
+    } else if (!rec && !is_user && !ctx_fn && !mem->is_type && !mem->is_arg && !e->current_include && is_init && !mem->is_decl) {
         /// add module-global if this has no value, set linkage
         symbol name = mem->name->chars;
         LLVMTypeRef type = mem->mdl->type;
@@ -1033,6 +1073,10 @@ void member_set_model(member mem, model mdl) {
         //verify(!mem->is_const || mem->value, "const value mismatch");
         bool is_global_space = false;
         if (!mem->value) {
+            if (strcmp(name, "a-member") == 0) {
+                int test = 2;
+                test += 2;
+            }
             mem->value = LLVMAddGlobal(e->module, type, name); // its created here (a-map)
             //LLVMSetGlobalConstant(mem->value, mem->is_const);
             LLVMSetInitializer(mem->value, LLVMConstNull(type));
@@ -1209,17 +1253,18 @@ node ether_create(ether e, model mdl, object args) {
             fault("unknown error");
     }
 
+    model        src        = mdl->ref == reference_pointer ? mdl->src : mdl;
     array        shape      = mdl->shape;
     i64          slen       = shape ? len(shape) : 0;
     num          count      = mdl->element_count ? mdl->element_count : 1;
-    bool         use_stack  = mdl->ref == reference_value;
+    bool         use_stack  = mdl->ref == reference_value && !is_class(mdl);
     LLVMValueRef size_A     = LLVMConstInt(LLVMInt64Type(), 32, false);
-    LLVMValueRef size_mdl   = LLVMConstInt(LLVMInt64Type(), mdl->size * count, false);
+    LLVMValueRef size_mdl   = LLVMConstInt(LLVMInt64Type(), src->size * count, false);
     LLVMValueRef total_size = use_stack ? size_mdl : LLVMBuildAdd(e->builder, size_A, size_mdl, "total-size");
     LLVMValueRef alloc      = use_stack ? LLVMBuildAlloca     (e->builder, mdl->type, "alloca-mdl") :
                                           LLVMBuildArrayMalloc(e->builder, LLVMInt8Type(), total_size, "malloc-A-mdl");
-    if (mdl->ref == reference_pointer) {
-        LLVMValueRef zero       = LLVMConstInt(LLVMInt8Type(), 0, false);  // Value to fill with
+    if (!use_stack) {
+        LLVMValueRef zero   = LLVMConstInt(LLVMInt8Type(), 0, false);  // Value to fill with
         LLVMBuildMemSet(e->builder, alloc, zero, total_size, 0);
     }
     LLVMValueRef user = use_stack ? alloc : LLVMBuildGEP2(e->builder, mdl->type, alloc, &size_A, 1, "user-mdl");
@@ -2064,7 +2109,7 @@ function model_initializer(model mdl) {
         imdl,     mdl,
         is_init,  true,
         rtype,    rtype,
-        members,  rec ? e->top->members : e->top->members, /// share the same members (beats filtering the list)
+        members,  rec ? map() : e->top->members, /// share the same members (beats filtering the list)
         args,     arguments());
 
     mdl->fn_init = fn_init;

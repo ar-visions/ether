@@ -102,7 +102,6 @@ declare_enum(reference)
     i_method  (X,Y, public,     function,   initializer) \
     i_method  (X,Y, public,     model,      pointer) \
     i_method  (X,Y, public,     bool,       has_scope) \
-    i_method  (X,Y, public,     none,       process_finalize, member) \
     i_method  (X,Y, public,     model,      alias,              object, reference, array) \
     i_method  (X,Y, public,     none,       finalize, member) \
     i_method  (X,Y, public,     member,     convertible,   model) \
