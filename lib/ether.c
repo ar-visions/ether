@@ -92,10 +92,6 @@ void ether_push_member(ether e, member mem) {
         list = array(32);
         set(members, key, list);
     }
-    if (eq(mem->name, "a-class")) {
-        int test = 2;
-        test += 2;
-    }
     set(members, str(mem->name->chars), mem);
     set_model(mem, mem->mdl);
 
@@ -768,16 +764,8 @@ void function_use(function fn) {
 }
 
 void record_finalize(record rec, member mem) {
-    if (eq(rec->name, "A_TYPE")) {
-        int test = 2;
-        test += 2;
-    }
     if (rec->finalized)
         return;
-    if (eq(rec->name, "a-class")) {
-        int test = 2;
-        test += 2;
-    }
 
     int   total = 0;
     ether e     = rec->mod;
@@ -914,14 +902,6 @@ void record_finalize(record rec, member mem) {
 
 void record_init(record rec) {
     ether e = rec->mod;
-    if (eq(rec->name, "a-class")) {
-        int test = 2;
-        test += 2;
-    }
-    if (eq(rec->name, "A_TYPE")) {
-        int test = 2;
-        test += 2;
-    }
     rec->type = LLVMStructCreateNamed(LLVMGetGlobalContext(), rec->name->chars);
 
     // Create a forward declaration for the struct's debug info
@@ -1030,7 +1010,6 @@ void member_set_model(member mem, model mdl) {
     /// to make debug and value info here
     if (ctx_fn && !mem->value) {
         verify (!mem->value, "value-ref already set auto member");
-        print("function LLVMBuildAlloca: %o", mem->name);
         mem->value = LLVMBuildAlloca(e->builder, mem->mdl->type, cstring(mem->name));
         mem->debug = LLVMDIBuilderCreateAutoVariable(
             e->dbg_builder,           // DIBuilder reference
@@ -1073,10 +1052,6 @@ void member_set_model(member mem, model mdl) {
         //verify(!mem->is_const || mem->value, "const value mismatch");
         bool is_global_space = false;
         if (!mem->value) {
-            if (strcmp(name, "a-member") == 0) {
-                int test = 2;
-                test += 2;
-            }
             mem->value = LLVMAddGlobal(e->module, type, name); // its created here (a-map)
             //LLVMSetGlobalConstant(mem->value, mem->is_const);
             LLVMSetInitializer(mem->value, LLVMConstNull(type));
@@ -1526,7 +1501,6 @@ node ether_load(ether e, member mem) {
             member target = lookup(e, string("this"), null); // unique to the function in class, not the class
             verify(target, "no target found when looking up member");
             /// static methods do not have this in context
-            print("target = %o", target->mdl->name);
             record rec = target->mdl->src;
             ptr = LLVMBuildStructGEP2(
                 e->builder, rec->type, target->value, mem->index, "member-ptr");
@@ -1561,10 +1535,6 @@ node ether_convert(ether e, node expr, model rtype) {
     if (F_kind == LLVMIntegerTypeKind &&  T_kind == LLVMIntegerTypeKind) {
         uint F_bits = LLVMGetIntTypeWidth(F->type), T_bits = LLVMGetIntTypeWidth(T->type);
         if (F_bits < T_bits) {
-            printf("V type: %s\n", LLVMPrintTypeToString(LLVMTypeOf(V)));
-            printf("F->type: %s, T->type: %s\n",
-                LLVMPrintTypeToString(F->type), LLVMPrintTypeToString(T->type));
-
             V = is_signed(F) ? LLVMBuildSExt(B, V, T->type, "sext")
                              : LLVMBuildZExt(B, V, T->type, "zext");
         } else if (F_bits > T_bits)
@@ -1642,14 +1612,6 @@ void assign_args(ether e, node L, object R, node* r_L, node* r_R) {
         *r_L = L;//load(e, Lm);
     else
         *r_L = L;
-
-    LLVMTypeRef RType = LLVMTypeOf((*r_R)->value);
-    LLVMTypeRef LType = LLVMTypeOf((*r_L)->value);
-    printf("assign_args: ");
-    LLVMDumpType(RType);
-    printf(" ");
-    LLVMDumpType(LType);
-    printf("\n");
 }
 
 struct op_entry {
@@ -2044,7 +2006,6 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
                 clang_disposeString(pcx);
             }
             bool is_var = clang_Cursor_isVariadic(cursor);
-            if (eq(name, "printf")) assert(is_var, "expected var arg");
             def = function(
                 mod,     e,     from_include, e->current_include,
                 name,    name,  va_args,      is_var,
