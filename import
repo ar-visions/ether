@@ -2,6 +2,7 @@ A 	https://github.com/ar-visions/A 		main
 
 lib:
 	A
+	clang
 	LLVMCore
 	LLVMBitReader
 	LLVMBitWriter
@@ -13,13 +14,14 @@ lib:
 	LLVMTransformUtils
 	LLVMAnalysis
 	LLVMProfileData
-	LLVMX86CodeGen
-	LLVMX86AsmParser
-	LLVMX86Desc
-	LLVMX86Info
-	LLVMAArch64CodeGen
-	LLVMAArch64AsmParser
-	LLVMAArch64Desc
-	LLVMAArch64Info
-	LLVMAArch64Utils
-	clang
+	x86_64:
+		LLVMX86CodeGen
+		LLVMX86AsmParser
+		LLVMX86Desc
+		LLVMX86Info
+	aarch64:
+		LLVMAArch64CodeGen
+		LLVMAArch64AsmParser
+		LLVMAArch64Desc
+		LLVMAArch64Info
+		LLVMAArch64Utils
