@@ -14,14 +14,14 @@ lib:
 	LLVMTransformUtils
 	LLVMAnalysis
 	LLVMProfileData
+	arm64:
+		LLVMAArch64AsmParser
+		LLVMAArch64CodeGen
+		LLVMAArch64Desc
+		LLVMAArch64Info
+		LLVMAArch64Utils
 	x86_64:
 		LLVMX86CodeGen
 		LLVMX86AsmParser
 		LLVMX86Desc
 		LLVMX86Info
-	arm64:
-		LLVMAArch64CodeGen
-		LLVMAArch64AsmParser
-		LLVMAArch64Desc
-		LLVMAArch64Info
-		LLVMAArch64Utils
