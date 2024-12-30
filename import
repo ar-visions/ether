@@ -17,4 +17,9 @@ lib:
 	LLVMX86AsmParser
 	LLVMX86Desc
 	LLVMX86Info
+	LLVMAArch64CodeGen
+	LLVMAArch64AsmParser
+	LLVMAArch64Desc
+	LLVMAArch64Info
+	LLVMAArch64Utils
 	clang
