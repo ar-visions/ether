@@ -19,7 +19,7 @@ lib:
 		LLVMX86AsmParser
 		LLVMX86Desc
 		LLVMX86Info
-	aarch64:
+	arm64:
 		LLVMAArch64CodeGen
 		LLVMAArch64AsmParser
 		LLVMAArch64Desc
