@@ -264,6 +264,7 @@ declare_class(node)
     i_prop    (X,Y, intern,     i64,                    offset) \
     i_prop    (X,Y, intern,     i64,                    index) \
     i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
+    i_method  (X,Y, public,     none,    release) \
     i_method  (X,Y, public,     bool,    has_value) \
     i_method  (X,Y, public,     none,    set_model,     model) \
     i_method  (X,Y, public,     none,    set_value,     object) \

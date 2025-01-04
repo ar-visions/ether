@@ -852,13 +852,13 @@ void record_finalize(record rec, member mem) {
         }
     
     /// finalize methods on record (which use its members)
-    each (a, record, r) {
+    /*each (a, record, r) {
         pairs(r->members, i) {
             member mem = i->value;
             if (instanceof(mem->mdl, function))
                 finalize(mem->mdl, mem);
         }
-    }
+    }*/
 
     /// build initializers for silver records
     if (!rec->from_include) {
@@ -1774,8 +1774,69 @@ model ether_push(ether e, model mdl) {
     return mdl;
 }
 
+none member_release(member mem) {
+    ether e = mem->mod;
+    model mdl = mem->mdl;
+    if (mdl->ref == reference_pointer) {
+        // Compute the base pointer (reference data is 32 bytes before `user`)
+        LLVMValueRef size_A = LLVMConstInt(LLVMInt64Type(), 32, false);
+        LLVMValueRef ref_ptr = LLVMBuildGEP2(e->builder, LLVMInt8Type(), mem->value, &size_A, -1, "ref_ptr");
+
+        // Cast to i64* to read the reference count
+        ref_ptr = LLVMBuildBitCast(e->builder, ref_ptr, LLVMPointerType(LLVMInt64Type(), 0), "ref_count_ptr");
+
+        // Load the current reference count
+        LLVMValueRef ref_count = LLVMBuildLoad2(e->builder, LLVMInt64Type(), ref_ptr, "ref_count");
+
+        // Decrement the reference count
+        LLVMValueRef new_ref_count = LLVMBuildSub(
+            e->builder,
+            ref_count,
+            LLVMConstInt(LLVMInt64Type(), 1, false),
+            "decrement_ref"
+        );
+
+        // Store the decremented reference count back
+        LLVMBuildStore(e->builder, new_ref_count, ref_ptr);
+
+        // Check if the reference count is less than zero
+        LLVMValueRef is_less_than_zero = LLVMBuildICmp(
+            e->builder,
+            LLVMIntSLT,
+            new_ref_count,
+            LLVMConstInt(LLVMInt64Type(), 0, false),
+            "is_less_than_zero"
+        );
+
+        // Conditional free if the reference count is < 0
+        LLVMBasicBlockRef current_block = LLVMGetInsertBlock(e->builder);
+        LLVMBasicBlockRef free_block = LLVMAppendBasicBlock(LLVMGetBasicBlockParent(current_block), "free_block");
+        LLVMBasicBlockRef no_free_block = LLVMAppendBasicBlock(LLVMGetBasicBlockParent(current_block), "no_free_block");
+
+        LLVMBuildCondBr(e->builder, is_less_than_zero, free_block, no_free_block);
+
+        // Free block: Add logic to free the memory
+        LLVMPositionBuilderAtEnd(e->builder, free_block);
+        member dealloc = get(mem->mdl->members, string("dealloc"));
+        if (dealloc) {
+            fn_call(e, dealloc, array_of(mem, null));
+        }
+        LLVMBuildFree(e->builder, ref_ptr);
+        LLVMBuildBr(e->builder, no_free_block);
+
+        // No-free block: Continue without freeing
+        LLVMPositionBuilderAtEnd(e->builder, no_free_block);
+    }
+}
 
 model ether_pop(ether e) {
+    statements st = instanceof(e->top, statements);
+    if (st) {
+        pairs(st->members, i) {
+            member mem = i->value;
+            release(mem);
+        }
+    }
     function fn_prev = context_model(e, typeid(function));
     if (fn_prev)
         fn_prev->last_dbg = LLVMGetCurrentDebugLocation2(e->builder);
