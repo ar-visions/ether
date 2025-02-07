@@ -135,8 +135,8 @@ bool is_void     (model f) {
 }
 
 bool is_generic  (model f) {
-    f = model_resolve(f); 
-    return f->src == typeid(object);
+    f = model_resolve(f);
+    return (AType)f->src == typeid(object);
 }
 
 bool is_record   (model f) {
@@ -173,7 +173,7 @@ void init() {
     LLVMInitializeNativeAsmPrinter();
     LLVMInitializeNativeAsmParser();
 
-    log("LLVM-Version", "%d.%d.%d",
+    A_log("LLVM-Version", "%d.%d.%d",
         LLVM_VERSION_MAJOR,
         LLVM_VERSION_MINOR,
         LLVM_VERSION_PATCH);
@@ -377,17 +377,18 @@ void ether_eprint_node(ether e, node n) {
 
 #define eprint(...) ether_eprint(__VA_ARGS__)
 
-void ether_eprint(ether e, symbol format, ...) {
+// f = format string; this is evaluated from nodes given at runtime
+void ether_eprint(ether e, symbol f, ...) {
     va_list args;
-    va_start(args, format);
+    va_start(args, f);
 
-    int   format_len  = strlen(format);
+    int   format_len  = strlen(f);
     int   pos         = 0;
     int   max_arg     = -1;
-    char* buf         = calloc(1, format_len + 1);
-    char* ptr         = format;
+    cstr  buf         = calloc(1, format_len + 1);
+    cstr  ptr         = (cstr)f;
     array schema      = array(32);
-    char* start       = null;
+    cstr  start       = null;
 
     while (*ptr) {
         if (*ptr == '{' && isdigit(*(ptr + 1))) {
@@ -573,7 +574,7 @@ void function_finalize(function fn, member mem) {
     // register module constructors as global initializers ONLY for delegate modules
     // ether creates a 'main' with argument parsing for its main modules
     if (is_init) {
-        verify(e->top == fn, "expected module context");
+        verify(e->top == (model)fn, "expected module context");
 
         if (e->mod->delegate) {
             unsigned ctr_kind = LLVMGetEnumAttributeKindForName("constructor", 11);
@@ -1134,7 +1135,7 @@ model model_alias(model src, object name, reference r, array shape) {
     each(src->aliases, model, mdl) {
         string s_name_alias = cast(string, mdl->name);
         /// check for null values
-        if (compare(s_name_alias, s_name) == 0 && (mdl->shape == shape || (mdl->shape && shape && compare(mdl->shape, shape)))) {
+        if (compare(s_name_alias, s_name) == 0 && (mdl->shape == (object)shape || (mdl->shape && shape && compare(mdl->shape, shape)))) {
             return mdl;
         }
     }
@@ -2154,7 +2155,7 @@ void ether_include(ether e, string include) {
     bool br = false;
     for (int i = 0; !br && i < sizeof(ipaths) / sizeof(symbol); i++) {
         for (int ii = 0; ii < 3; ii++) {
-            path r0 = form(path, templates[ii], ipaths[i], include);
+            path r0 = form(path, (cstr)templates[ii], ipaths[i], include);
             if (exists(r0)) {
                 full_path = r0;
                 br = true;
@@ -2890,10 +2891,10 @@ string read_string(cstr cs) {
                 default:   app = "?";  break;
             }
             inc = 2;
-            append(res, app);
+            append(res, (cstr)app);
         } else {
             char app[2] = { cur[0], 0 };
-            append(res, app);
+            append(res, (cstr)app);
         }
         cur += inc;
     }

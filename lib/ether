@@ -21,7 +21,7 @@ typedef struct record*      record;
 typedef struct node*        node;
 typedef struct function*    function;
 
-#define comparison_schema(X,Y) \
+#define comparison_schema(X,Y,...) \
     enum_value_v(X,Y, equals, 32) \
     enum_value  (X,Y, not_equals) \
     enum_value  (X,Y, u_greater_than) \
@@ -34,7 +34,7 @@ typedef struct function*    function;
     enum_value  (X,Y, s_less_than_e)
 declare_enum(comparison)
 
-#define token_schema(X,Y) \
+#define token_schema(X,Y,...) \
     i_prop      (X,Y,  required, cstr,      chars) \
     i_prop      (X,Y,  public,  sz,         len) \
     i_prop      (X,Y,  public,  path,       source) \
@@ -59,21 +59,21 @@ declare_enum(comparison)
 declare_class(token)
 
 
-#define interface_schema(X,Y) \
+#define interface_schema(X,Y,...) \
     enum_value(X,Y, undefined) \
     enum_value(X,Y, intern) \
     enum_value(X,Y, public)
 declare_enum(interface)
 
 
-#define reference_schema(X,Y) \
+#define reference_schema(X,Y,...) \
     enum_value(X,Y, value) \
     enum_value(X,Y, pointer) \
     enum_value(X,Y, constant)
 declare_enum(reference)
 
 
-#define model_schema(X,Y)\
+#define model_schema(X,Y,...)\
     i_prop    (X,Y, required,   ether,            mod) \
     i_prop    (X,Y, public,     token,            name) \
     i_prop    (X,Y, intern,     array,            aliases) \
@@ -114,7 +114,7 @@ declare_enum(reference)
 #endif
 declare_class(model)
 
-#define arguments_schema(X,Y) \
+#define arguments_schema(X,Y,...) \
     i_prop    (X,Y, public, array,    args) \
     i_prop    (X,Y, public, bool,     is_ext) \
     i_prop    (X,Y, public, model,    ext_type) \
@@ -129,7 +129,7 @@ declare_class(model)
 declare_mod(arguments, model)
 
 
-#define format_attr_schema(X,Y) \
+#define format_attr_schema(X,Y,...) \
     i_prop(X,Y, required, string, type) \
     i_prop(X,Y, public,   i32,    format_index) \
     i_prop(X,Y, public,   i32,    arg_index)
@@ -139,7 +139,7 @@ declare_mod(arguments, model)
 declare_class(format_attr)
 
 
-#define function_schema(X,Y) \
+#define function_schema(X,Y,...) \
     i_prop(X,Y, public,     bool,                   is_cast) \
     i_prop(X,Y, public,     bool,                   is_global_ctr) \
     i_prop(X,Y, public,     bool,                   is_init) \
@@ -168,7 +168,7 @@ declare_class(format_attr)
 declare_mod(function, model)
 
 
-#define statements_schema(X,Y) \
+#define statements_schema(X,Y,...) \
     i_override(X,Y, method, init)
 #ifndef statements_intern
 #define statements_intern isize(statements)
@@ -178,7 +178,7 @@ declare_mod(statements, model)
 typedef struct schematic* schematic;
 
 // for each field, f_* name-bound class, enum or primitive
-#define record_schema(X,Y) \
+#define record_schema(X,Y,...) \
     i_prop    (X,Y, public, record, parent) \
     i_prop    (X,Y, public, schematic, schema) \
     i_override(X,Y, method,         finalize) \
@@ -189,7 +189,7 @@ typedef struct schematic* schematic;
 declare_mod(record, model)
 
 
-#define schematic_schema(X,Y) \
+#define schematic_schema(X,Y,...) \
     i_prop    (X,Y, public, record,     mdl) \
     i_prop    (X,Y, public, string,     namespace) \
     i_prop    (X,Y, public, interface,  access)
@@ -199,29 +199,37 @@ declare_mod(record, model)
 declare_class(schematic)
 
 
-#define class_schema(X,Y)
+#define class_schema(X,Y,...) \
+model_schema(model,Y,__VA_ARGS__) \
+record_schema(record,Y,__VA_ARGS__)
 #ifndef class_intern
 #define class_intern
 #endif
-declare_mod(class, record, model)
+declare_class(class)
 
-#define structure_schema(X,Y)
+#define structure_schema(X,Y,...) \
+model_schema(model,Y,__VA_ARGS__) \
+record_schema(record,Y,__VA_ARGS__)
 #ifndef structure_intern
 #define structure_intern
 #endif
-declare_mod(structure, record, model)
+declare_class(structure)
 
-#define enumerable_schema(X,Y)
+#define enumerable_schema(X,Y,...) \
+model_schema(model,Y,__VA_ARGS__) \
+record_schema(record,Y,__VA_ARGS__)
 #ifndef enumerable_intern
 #define enumerable_intern
 #endif
-declare_mod(enumerable, record, model)
+declare_class(enumerable)
 
-#define uni_schema(X,Y)
+#define uni_schema(X,Y,...) \
+model_schema(model,Y,__VA_ARGS__) \
+record_schema(record,Y,__VA_ARGS__)
 #ifndef uni_intern
 #define uni_intern
 #endif
-declare_mod(uni, record, model)
+declare_class(uni)
 
 
 /// the base helps us require the two args we need for nodes
@@ -229,7 +237,7 @@ declare_mod(uni, record, model)
 /// all node values must contain its ether def.
 /// otherwise we are performing hash lookups, which is more complex and slower, 
 /// with less data stored
-#define node_schema(X,Y)\
+#define node_schema(X,Y,...)\
     i_prop    (X,Y, public,     token,                  name) \
     i_prop    (X,Y, public,     ether,                  mod) \
     i_prop    (X,Y, required,   model,                  mdl) \
@@ -244,7 +252,7 @@ declare_mod(uni, record, model)
 declare_class(node)
 
 // if ref is set, its a reference to a member with type definition (model, struct, ref)
-#define member_schema(X,Y) \
+#define member_schema(X,Y,...) \
     i_prop    (X,Y, public,     interface,              access) \
     i_prop    (X,Y, public,     member,                 target_member) \
     i_prop    (X,Y, public,     record,                 target_record) \
@@ -276,7 +284,7 @@ declare_class(node)
 declare_mod(member, node)
 
 
-#define code_schema(X,Y) \
+#define code_schema(X,Y,...) \
     i_prop    (X,Y, intern, LLVMBasicBlockRef, block) \
     i_prop    (X,Y, public, ether,  mod) \
     i_prop    (X,Y, public, symbol, label) \
@@ -287,7 +295,7 @@ declare_mod(member, node)
 #endif
 declare_class(code)
 
-#define ether_schema(X,Y)\
+#define ether_schema(X,Y,...)\
     i_prop    (X,Y, required,   path,                   source) \
     i_prop    (X,Y, required,   string,                 lang) \
     i_prop    (X,Y, required,   path,                   install) \
