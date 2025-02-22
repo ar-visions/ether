@@ -372,7 +372,7 @@ void ether_eprint_node(ether e, node n) {
     }
     verify(fmt, "eprint_node: unsupported model: %o", n->mdl->name);
     fn_call(e, printf_fn,
-        array_of(null, operand(e, string(fmt), null), n, null));
+        array_of(operand(e, string(fmt), null), n, null));
 }
 
 #define eprint(...) ether_eprint(__VA_ARGS__)
@@ -1224,7 +1224,7 @@ node ether_create(ether e, model mdl, object args) {
             ctr = fmem;
         } else if (fn->function_type & A_TYPE_CAST) {
             /// cast call on input
-            return fn_call(e, fn, array_of(null, input, null));
+            return fn_call(e, fn, array_of(input, null));
         } else
             fault("unknown error");
     }
@@ -2705,7 +2705,7 @@ node ether_op(ether e, OPType optype, string op_name, object L, object R) {
                 /// convert argument and call method
                 model  arg_expects = get(fn->args, 0);
                 node  conv = convert(e, Ln, arg_expects);
-                array args = array_of(null, conv, null);
+                array args = array_of(conv, null);
                 verify(mL, "mL == null");
                 member fmem = member(mod, e, mdl, Lt->mdl, name, Lt->name, target_member, mL);
                 return fn_call(e, fmem, args); // todo: fix me: Lt must have target_member associated, so allocate a member() for this
