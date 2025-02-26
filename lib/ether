@@ -14,12 +14,12 @@
 /// by A-type driven types.  its just how you want to 'start' building
 /// a language, like silver!
 
-typedef struct ether*       ether;
-typedef struct model*       model;
-typedef struct member*      member;
-typedef struct record*      record;
-typedef struct node*        node;
-typedef struct function*    function;
+typedef struct _ether*       ether;
+typedef struct _model*       model;
+typedef struct _member*      member;
+typedef struct _record*      record;
+typedef struct _node*        node;
+typedef struct _function*    function;
 
 #define comparison_schema(X,Y,...) \
     enum_value_v(X,Y, equals, 32) \
@@ -152,7 +152,7 @@ declare_class(format_attr)
     i_prop(X,Y, public,     bool,                   single_expr) \
     i_prop(X,Y, public,     member,                 target) \
     i_prop(X,Y, public,     member,                 main_member) \
-    i_prop(X,Y, public,     AFlag,                  function_type) \
+    i_prop(X,Y, public,     AMember,                function_type) \
     i_prop(X,Y, intern,     format_attr,            format) \
     i_prop(X,Y, intern,     LLVMMetadataRef,        last_dbg) \
     i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
@@ -175,7 +175,7 @@ declare_mod(function, model)
 #endif
 declare_mod(statements, model)
 
-typedef struct schematic* schematic;
+typedef struct _schematic* schematic;
 
 // for each field, f_* name-bound class, enum or primitive
 #define record_schema(X,Y,...) \
@@ -327,7 +327,7 @@ declare_class(code)
     i_method  (X,Y, public,     node,       eelement,   node, object) \
     i_method  (X,Y, public,     none,       ecmp,       node, comparison, node, code, code) \
     i_method  (X,Y, public,     none,       ebranch,    code) \
-    i_method  (X,Y, public,     member,     compatible,     record, string, AFlag, array) \
+    i_method  (X,Y, public,     member,     compatible,     record, string, AMember, array) \
     i_method  (X,Y, public,     none,       push_member,    member) \
     i_method  (X,Y, public,     member,     push_model,     model) \
     i_method  (X,Y, public,     node,       operand,        object, model) \

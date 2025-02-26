@@ -192,7 +192,7 @@ void print_ctx(ether e, string msg) {
     print("%o: %o", res, msg);
 }
 
-#define print_context(msg, ...) print_ctx(e, format(msg, ## __VA_ARGS__))
+#define print_context(msg, ...) print_ctx(e, form(string, msg, ## __VA_ARGS__))
 
 /// 'record' does things with this, as well as 'function'
 void model_finalize(model mdl, member mem) {
@@ -207,9 +207,9 @@ string model_cast_string(model mdl) {
         mdl = mdl->src;
         if (mdl->name) {
             if (depth == 1)
-                return format("ref %o", mdl->name);
+                return form(string, "ref %o", mdl->name);
             else {
-                string res = format("%o", mdl->name);
+                string res = form(string, "%o", mdl->name);
                 for (int i = 0; i < depth; i++)
                     append(res, "*");
                 return res;
@@ -596,7 +596,7 @@ void function_finalize(function fn, member mem) {
             function main_fn = function(
                 mod,            e,
                 name,           string("main"),
-                function_type,  A_TYPE_SMETHOD,
+                function_type,  A_MEMBER_SMETHOD,
                 export,         true,
                 record,         null,
                 rtype,          lookup(e, string("int"), null)->mdl,
@@ -1150,14 +1150,14 @@ model model_alias(model src, object name, reference r, array shape) {
         /// lets create a bindable name here
         int slen = len(shape);
         if (slen == 0) {
-            name = format("array_%o", src->name);
+            name = form(string, "array_%o", src->name);
         } else {
             node  n = first(shape);
             AType component_type = n->literal ? isa(n->literal) : isa(n);
             verify(component_type == typeid(i64) || 
                    component_type == typeid(sz), "expected size type in model wrap");
             sz size = *(sz*)n->literal;
-            name = format("array_%i_%o", (int)size, src->name);
+            name = form(string, "array_%i_%o", (int)size, src->name);
         }
     }
 
@@ -1217,12 +1217,12 @@ node ether_create(ether e, model mdl, object args) {
             return convert(e, input, mdl); /// primitive-based conversion goes here
         
         function fn = instanceof(fmem->mdl, function);
-        if (fn->function_type & A_TYPE_CONSTRUCT) {
+        if (fn->function_type & A_MEMBER_CONSTRUCT) {
             /// ctr: call before init
             /// this also means the mdl is not a primitive
             verify(!is_primitive(fn->rtype), "expected struct/class");
             ctr = fmem;
-        } else if (fn->function_type & A_TYPE_CAST) {
+        } else if (fn->function_type & A_MEMBER_CAST) {
             /// cast call on input
             return fn_call(e, fn, array_of(input, null));
         } else
@@ -1508,7 +1508,7 @@ node ether_load(ether e, member mem) {
         }
     }
 
-    string       label = format("load-member-%o", mem->name);
+    string       label = form(string, "load-member-%o", mem->name);
     LLVMValueRef res   = (mem->is_arg || e->left_hand) ? ptr :
         LLVMBuildLoad2(e->builder, mdl->type, ptr, cstring(label));
     
@@ -1657,9 +1657,9 @@ model ether_base_model(ether e, symbol name, AType native) {
 }
 
 model ether_define_generic(ether e) {
-    A  object = A_alloc(typeid(object), 1, true);
+    A     obj = A_alloc(typeid(object), 1, true);
     string  n = string("generic");
-    model mdl = model(mod, e, name, n, src, object);
+    model mdl = model(mod, e, name, n, src, obj);
     set(e->base, n, mdl);
     push_model(e, mdl);
     return mdl;
@@ -2123,7 +2123,7 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
 function model_initializer(model mdl) {
     ether    e       = mdl->mod;
     model    rtype   = emodel("void");
-    string   fn_name = format("_%o_init", mdl->name);
+    string   fn_name = form(string, "_%o_init", mdl->name);
     record   rec     = instanceof(mdl, record);
     function fn_init = function(
         mod,      mdl->mod,
@@ -2141,7 +2141,7 @@ function model_initializer(model mdl) {
 
 /// return a map of defs found by their name (we can isolate the namespace this way by having separate maps)
 void ether_include(ether e, string include) {
-    string   include_path  = format("%o/include", e->install);
+    string   include_path  = form(string, "%o/include", e->install);
     path     full_path = null;
     symbol   ipaths[]  = {
         include_path->chars,
@@ -2235,8 +2235,8 @@ void ether_llvm_init(ether e) {
     llflag(e, "Dwarf Version",      5);
     llflag(e, "Debug Info Version", 3);
 
-    printf("ether: sizeof model = %i\n", (int)sizeof(struct model));
-    printf("ether: sizeof ether = %i\n", (int)sizeof(struct ether));
+    printf("ether: sizeof model = %i\n", (int)sizeof(struct _model));
+    printf("ether: sizeof ether = %i\n", (int)sizeof(struct _ether));
 
     string src_file =      filename (e->source);
     string src_path = cast(string, directory(e->source));
@@ -2369,7 +2369,7 @@ member model_castable(model fr, model to) {
     pairs (to->members, i) {
         member mem = i->value;
         function fn = instanceof(mem->mdl, function);
-        if (!fn || !(fn->function_type & A_TYPE_CONSTRUCT))
+        if (!fn || !(fn->function_type & A_MEMBER_CONSTRUCT))
             continue;
         member first = null;
         pairs (fn->members, i) {
@@ -2386,7 +2386,7 @@ member model_castable(model fr, model to) {
     pairs (fr->members, i) {
         member mem = i->value;
         function fn = instanceof(mem->mdl, function);
-        if (!fn || !(fn->function_type & A_TYPE_CAST))
+        if (!fn || !(fn->function_type & A_MEMBER_CAST))
             continue;
         if (fn->rtype == to)
             return mem;
@@ -2406,7 +2406,7 @@ member model_constructable(model fr, model to) {
     pairs (to->members, i) {
         member mem = i->value;
         function fn = instanceof(mem->mdl, function);
-        if (!fn || !(fn->function_type & A_TYPE_CONSTRUCT))
+        if (!fn || !(fn->function_type & A_MEMBER_CONSTRUCT))
             continue;
         member first = null;
         pairs (fn->members, i) {
@@ -2428,7 +2428,7 @@ member model_convertible(model fr, model to) {
     return mcast ? mcast : constructable(fr, to);
 }
 
-member ether_compatible(ether e, record r, string n, AFlag f, array args) {
+member ether_compatible(ether e, record r, string n, AMember f, array args) {
     pairs (r->members, i) {
         member mem = i->value;
         function fn = instanceof(mem->mdl, function);
@@ -2502,7 +2502,7 @@ node ether_bitwise_not(ether e, node L) {
 node ether_eq(ether e, node L, node R);
 
 node ether_is(ether e, node L, object R) {
-    node L_type =  offset(e, L, A_i64(-sizeof(A)));
+    node L_type =  offset(e, L, A_i64(-sizeof(struct _A)));
     node L_ptr  =    load(e, L_type); /// must override the mdl type to a ptr, but offset should not perform a unit translation but rather byte-based
     node R_ptr  = operand(e, R, null);
     return ether_eq(e, L_ptr, R_ptr);
@@ -2828,7 +2828,7 @@ A read_numeric(token a) {
 }
 
 string token_location(token a) {
-    string f = format("%o:%i:%i", a->source, a->line, a->column);
+    string f = form(string, "%o:%i:%i", a->source, a->line, a->column);
     return f;
 }
 
