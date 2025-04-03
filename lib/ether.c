@@ -7,12 +7,9 @@
 #include <llvm-c/BitWriter.h>
 #include <clang-c/Index.h>
 
-
-
 typedef LLVMMetadataRef LLVMScope;
 
 #include <import>
-#include <ether>
 
 // def -> base for change from type to member (member has model 
 //#define ecall(M, ...) ether_##M(e, ## __VA_ARGS__) # .cms [ c-like module in silver ]
@@ -23,7 +20,7 @@ typedef LLVMMetadataRef LLVMScope;
     mdl;                            \
 })
 
-#define emember(M, N) member(mod, e, name, str(N), mdl, M);
+#define emember(M, N) member(mod, e, name, string(N), mdl, M);
 
 #define value(m,vr) node(mod, e, value, vr, mdl, m)
 
@@ -86,13 +83,13 @@ void ether_push_member(ether e, member mem) {
         //push_member(e, ptr_class);
     //}
     map members = ether_top_member_map(e);
-    string  key = str(mem->name->chars);
+    string  key = string(mem->name->chars);
     array  list = get(members, key);
     if (!list) {
         list = array(32);
         set(members, key, list);
     }
-    set(members, str(mem->name->chars), mem);
+    set(members, string(mem->name->chars), mem);
     set_model(mem, mem->mdl);
 
     if (mem->mdl->from_include)
@@ -721,12 +718,12 @@ void function_use(function fn) {
     if (fn->target) {
         fn->target->value = LLVMGetParam(fn->value, index++);
         fn->target->is_arg = true;
-        set(fn->members, str("this"), fn->target); /// here we have the LLVM Value Ref of the first arg, or, our instance pointer
+        set(fn->members, string("this"), fn->target); /// here we have the LLVM Value Ref of the first arg, or, our instance pointer
     }
     each(fn->args, member, arg) {
         arg->value = LLVMGetParam(fn->value, index++);
         arg->is_arg = true;
-        set(fn->members, str(arg->name->chars), arg);
+        set(fn->members, string(arg->name->chars), arg);
     }
     
     //verify(fmem, "function member access not found");
@@ -1639,7 +1636,7 @@ node ether_assign(ether e, node L, object R, OPType op) {
         rL = load(e, L);
         res = value(L->mdl,
             op_table[op - OPType__assign - 1].f_op
-                (e->builder, rL->value, rR->value, estr(OPType, op)->chars));
+                (e->builder, rL->value, rR->value, e_str(OPType, op)->chars));
     }
     LLVMBuildStore(e->builder, res->value, L->value);
     return res;
@@ -1649,9 +1646,9 @@ model ether_base_model(ether e, symbol name, AType native) {
     void* result[8];
     A prim = A_primitive(native, result); /// make a mock instance out of the type
     model mdl = model(
-        mod, e, name, str(name), src, prim);
-    verify (!contains(e->base, str(name)), "duplicate definition");
-    set(e->base, str(name), mdl);
+        mod, e, name, string(name), src, prim);
+    verify (!contains(e->base, string(name)), "duplicate definition");
+    set(e->base, string(name), mdl);
     push_model(e, mdl);
     return mdl;
 }
@@ -1668,50 +1665,50 @@ model ether_define_generic(ether e) {
 /// A-type must be read
 void ether_define_primitive(ether e) {
     e->base = map(hsize, 64);
-    model none = ether_base_model(e, "void", typeid(none));
-                ether_base_model(e, "bool", typeid(bool));
-                ether_base_model(e, "u8", typeid(u8));
-    model u16 = ether_base_model(e, "u16", typeid(u16));
-                ether_base_model(e, "u32", typeid(u32));
-    model u64 = ether_base_model(e, "u64", typeid(u64));
-    model i8  = ether_base_model(e, "i8",  typeid(i8));
-    model i16 = ether_base_model(e, "i16", typeid(i16));
-    model i32 = ether_base_model(e, "i32", typeid(i32));
-    model i64 = ether_base_model(e, "i64", typeid(i64));
-                ether_base_model(e, "f32",  typeid(f32));
-                ether_base_model(e, "f64",  typeid(f64));
-                ether_base_model(e, "f128", typeid(f128));
+    model _none = ether_base_model(e, "void", typeid(none));
+                  ether_base_model(e, "bool", typeid(bool));
+                  ether_base_model(e, "u8", typeid(u8));
+    model  _u16 = ether_base_model(e, "u16", typeid(u16));
+                  ether_base_model(e, "u32", typeid(u32));
+    model  _u64 = ether_base_model(e, "u64", typeid(u64));
+    model  _i8  = ether_base_model(e, "i8",  typeid(i8));
+    model  _i16 = ether_base_model(e, "i16", typeid(i16));
+    model  _i32 = ether_base_model(e, "i32", typeid(i32));
+    model  _i64 = ether_base_model(e, "i64", typeid(i64));
+                  ether_base_model(e, "f32",  typeid(f32));
+                  ether_base_model(e, "f64",  typeid(f64));
+                  ether_base_model(e, "f128", typeid(f128));
 
-    model _cstr = alias(i8, str("cstr"), reference_pointer, null);
+    model _cstr = alias(_i8, str("cstr"), reference_pointer, null);
     set(e->base, str("cstr"), _cstr);
     push_model(e, _cstr);
 
-    model symbol = alias(i8, str("symbol"), reference_constant, null);
-    set(e->base, str("symbol"), symbol);
-    push_model(e, symbol);
+    model sym = alias(_i8, string("symbol"), reference_constant, null);
+    set(e->base, string("symbol"), sym);
+    push_model(e, sym);
 
-    model symbols = alias(symbol, str("symbols"), reference_constant, null);
-    set(e->base, str("symbols"), symbols);
+    model symbols = alias(sym, string("symbols"), reference_constant, null);
+    set(e->base, string("symbols"), symbols);
     push_model(e, symbols);
 
-    model _char = alias(i32, str("char"), 0, null);
-    set(e->base, str("char"), _char);
+    model _char = alias(_i32, string("char"), 0, null);
+    set(e->base, string("char"), _char);
     push_model(e, _char);
 
-    model _int  = alias(i64, str("int"), 0, null);
-    set(e->base, str("int"), _int);
+    model _int  = alias(_i64, string("int"), 0, null);
+    set(e->base, string("int"), _int);
     push_model(e, _int);
 
-    model _uint = alias(u64, str("uint"), 0, null);
-    set(e->base, str("uint"), _uint);
+    model _uint = alias(_u64, string("uint"), 0, null);
+    set(e->base, string("uint"), _uint);
     push_model(e, _uint);
 
-    model _short  = alias(i16, str("short"), 0, null);
-    set(e->base, str("short"), _short);
+    model _short  = alias(_i16, string("short"), 0, null);
+    set(e->base, string("short"), _short);
     push_model(e, _short);
 
-    model _ushort = alias(u16, str("ushort"), 0, null);
-    set(e->base, str("ushort"), _ushort);
+    model _ushort = alias(_u16, string("ushort"), 0, null);
+    set(e->base, string("ushort"), _ushort);
     push_model(e, _ushort);
 }
 
@@ -1896,7 +1893,7 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
         case CXType_Enum: {
             CXString n = clang_getTypeSpelling(base);
             symbol ename = clang_getCString(n);
-            t = str(ename);
+            t = string(ename);
             if (starts_with(t, "enum "))
                 t = mid(t, 5, len(t) - 5);
             clang_disposeString(n);
@@ -1919,28 +1916,28 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
             }
             break;
         }
-        case CXType_Void:       t = str("void"); break;
-        case CXType_Char_S:     t = str("i8");   break;
-        case CXType_Char_U:     t = str("u8");   break;
-        case CXType_SChar:      t = str("i8");   break;
-        case CXType_UChar:      t = str("u8");   break;
-        case CXType_Char16:     t = str("i16");  break;
-        case CXType_Char32:     t = str("i32");  break;
-        case CXType_Bool:       t = str("bool"); break;
-        case CXType_UShort:     t = str("u16");  break;
-        case CXType_Short:      t = str("i16");  break;
-        case CXType_UInt:       t = str("u32");  break;
-        case CXType_Int:        t = str("i32");  break;
-        case CXType_ULong:      t = str("u64");  break;
-        case CXType_Long:       t = str("i64");  break;
-        case CXType_LongLong:   t = str("i64");  break;
-        case CXType_ULongLong:  t = str("u64");  break;
-        case CXType_Float:      t = str("f32");  break;
-        case CXType_Double:     t = str("f64");  break;
-        case CXType_LongDouble: t = str("f128"); break;
+        case CXType_Void:       t = string("void"); break;
+        case CXType_Char_S:     t = string("i8");   break;
+        case CXType_Char_U:     t = string("u8");   break;
+        case CXType_SChar:      t = string("i8");   break;
+        case CXType_UChar:      t = string("u8");   break;
+        case CXType_Char16:     t = string("i16");  break;
+        case CXType_Char32:     t = string("i32");  break;
+        case CXType_Bool:       t = string("bool"); break;
+        case CXType_UShort:     t = string("u16");  break;
+        case CXType_Short:      t = string("i16");  break;
+        case CXType_UInt:       t = string("u32");  break;
+        case CXType_Int:        t = string("i32");  break;
+        case CXType_ULong:      t = string("u64");  break;
+        case CXType_Long:       t = string("i64");  break;
+        case CXType_LongLong:   t = string("i64");  break;
+        case CXType_ULongLong:  t = string("u64");  break;
+        case CXType_Float:      t = string("f32");  break;
+        case CXType_Double:     t = string("f64");  break;
+        case CXType_LongDouble: t = string("f128"); break;
         case CXType_Record: {
             CXString n = clang_getTypeSpelling(base);
-            t = str(clang_getCString(n));
+            t = string(clang_getCString(n));
             clang_disposeString(n);
             if (starts_with(t, "struct "))
                 t = mid(t, 7, len(t) - 7);
@@ -1966,7 +1963,7 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
             break;
         }
         default:
-            t = str("void");
+            t = string("void");
     }
 
     model mdl = emodel(t->chars);
@@ -1997,7 +1994,7 @@ enum CXChildVisitResult visit_member(CXCursor cursor, CXCursor parent, CXClientD
         model    mdl = cx_to_model(e, field_type, (cstr)field_name_cs, false);
         member   mem = member(mod, e, mdl, mdl,
             name, string((cstr)field_name_cs), from_include, e->current_include);
-        set(type_def->members, str(field_name_cs), mem);
+        set(type_def->members, string(field_name_cs), mem);
         clang_disposeString(field_name);
         clang_disposeString(field_ts);
         ether_pop(e);
@@ -2018,7 +2015,7 @@ enum CXChildVisitResult visit_enum_constant(CXCursor cursor, CXCursor parent, CX
             name, string((cstr)name), from_include, e->current_include);
         mem->is_const     = true;
         set_value(mem, A_i32((i32)value)); /// this should set constant since it should know
-        set(def->members, str(name), mem);
+        set(def->members, string(name), mem);
         clang_disposeString(spelling);
     }
     return CXChildVisit_Continue;
@@ -2028,7 +2025,7 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
     ether       e = (ether)client_data;
     CXString  fcx = clang_getCursorSpelling(cursor);
     symbol     cs = clang_getCString(fcx);
-    string   name = str(cs);
+    string   name = string(cs);
     model     def = null;
     enum CXCursorKind k = clang_getCursorKind(cursor);
     model current = emodel(name->chars);
@@ -2082,7 +2079,7 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
                 unsigned f_index = clang_FormatAttr_getFormatIdx(format);
                 unsigned f_first = clang_FormatAttr_getFirstArg (format);
                 ((function)def)->format = format_attr(
-                    type, str(f_stype), format_index, f_index, arg_index, f_first);
+                    type, string(f_stype), format_index, f_index, arg_index, f_first);
                 clang_disposeString(f_type);
             }
             break;
@@ -2276,7 +2273,7 @@ void ether_init(ether e) {
 }
 
 
-void ether_destructor(ether e) {
+void ether_dealloc(ether e) {
     //LLVMDisposeExecutionEngine(e->jit);
     LLVMDisposeBuilder(e->builder);
     LLVMDisposeDIBuilder(e->dbg_builder);
@@ -2654,14 +2651,14 @@ node ether_fn_call(ether e, member fn_mem, array args) {
         arg_values[fmt_idx] = fmt_node->value;
         // process format specifiers and map to our types
         int soft_args = 0;
-        cstr p = fmt_str->chars;
+        symbol p = fmt_str->chars;
         // we will have to convert %o to %s, unless we can be smart with %s lol.
         // i just dont like how its different from A-type
         // may simply be fine to use %s for string, though.  its natural to others
         // alternately we may copy the string from %o to %s.
         while  (p[0]) {
             if (p[0] == '%' && p[1] != '%') {
-                model arg_type = formatter_type(e, &p[1]);
+                model arg_type = formatter_type(e, (cstr)&p[1]);
                 object o_arg = args->elements[arg_idx + soft_args];
                 AType arg_type2 = isa(o_arg);
                 node n_arg = load(e, o_arg);
@@ -2750,15 +2747,15 @@ node ether_op(ether e, OPType optype, string op_name, object L, object R) {
         value,      RES);
 }
 
-node ether_or (ether e, object L, object R) { return ether_op(e, OPType__or,  str("or"),  L, R); }
-node ether_xor(ether e, object L, object R) { return ether_op(e, OPType__xor, str("xor"), L, R); }
-node ether_and(ether e, object L, object R) { return ether_op(e, OPType__and, str("and"), L, R); }
-node ether_add(ether e, object L, object R) { return ether_op(e, OPType__add, str("add"), L, R); }
-node ether_sub(ether e, object L, object R) { return ether_op(e, OPType__sub, str("sub"), L, R); }
-node ether_mul(ether e, object L, object R) { return ether_op(e, OPType__mul, str("mul"), L, R); }
-node ether_div(ether e, object L, object R) { return ether_op(e, OPType__div, str("div"), L, R); }
-node ether_value_default(ether e, object L, object R) { return ether_op(e, OPType__value_default, str("value_default"), L, R); }
-node ether_cond_value   (ether e, object L, object R) { return ether_op(e, OPType__cond_value,    str("cond_value"), L, R); }
+node ether_or (ether e, object L, object R) { return ether_op(e, OPType__or,  string("or"),  L, R); }
+node ether_xor(ether e, object L, object R) { return ether_op(e, OPType__xor, string("xor"), L, R); }
+node ether_and(ether e, object L, object R) { return ether_op(e, OPType__and, string("and"), L, R); }
+node ether_add(ether e, object L, object R) { return ether_op(e, OPType__add, string("add"), L, R); }
+node ether_sub(ether e, object L, object R) { return ether_op(e, OPType__sub, string("sub"), L, R); }
+node ether_mul(ether e, object L, object R) { return ether_op(e, OPType__mul, string("mul"), L, R); }
+node ether_div(ether e, object L, object R) { return ether_op(e, OPType__div, string("div"), L, R); }
+node ether_value_default(ether e, object L, object R) { return ether_op(e, OPType__value_default, string("value_default"), L, R); }
+node ether_cond_value   (ether e, object L, object R) { return ether_op(e, OPType__cond_value,    string("cond_value"), L, R); }
 
 node ether_inherits(ether e, node L, object R) {
     // Get the type pointer for L
@@ -2915,7 +2912,7 @@ void token_init(token a) {
 
     if (a->chars[0] == '\"' || a->chars[0] == '\'') {
         string crop = string(chars, &a->chars[1], ref_length, length - 2);
-        a->literal = read_string(crop->chars);
+        a->literal = read_string((cstr)crop->chars);
     } else
         a->literal = read_numeric(a);
 }

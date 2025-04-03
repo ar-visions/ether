@@ -53,9 +53,6 @@ declare_enum(comparison)
     i_override  (X,Y,  method,  compare) \
     i_override  (X,Y,  cast,    string) \
     i_override  (X,Y,  cast,    bool)
-#ifndef token_intern
-#define token_intern
-#endif
 declare_class(token)
 
 
@@ -92,9 +89,9 @@ declare_enum(reference)
     i_prop    (X,Y, public,     map,              members) \
     i_prop    (X,Y, public,     path,             from_include) \
     i_prop    (X,Y, public,     array,            body) \
-    i_prop    (X,Y, intern,     LLVMScope,        scope) \
-    i_prop    (X,Y, intern,     LLVMTypeRef,      type) \
-    i_prop    (X,Y, intern,     LLVMMetadataRef,  debug) \
+    i_prop    (X,Y, intern,     LLVMScope,        scope,      as, ARef) \
+    i_prop    (X,Y, intern,     LLVMTypeRef,      type,       as, ARef) \
+    i_prop    (X,Y, intern,     LLVMMetadataRef,  debug,      as, ARef) \
     i_prop    (X,Y, intern,     model,            ptr) \
     i_prop    (X,Y, public,     bool,             finalized) \
     i_prop    (X,Y, intern,     model,            init_top) \
@@ -109,9 +106,6 @@ declare_enum(reference)
     i_method  (X,Y, public,     member,     constructable, model) \
     i_override(X,Y, cast,       string) \
     i_override(X,Y, method,     init)
-#ifndef model_intern
-#define model_intern isize(model)
-#endif
 declare_class(model)
 
 #define arguments_schema(X,Y,...) \
@@ -123,9 +117,6 @@ declare_class(model)
     i_method  (X,Y, public, none,     push, member) \
     i_method  (X,Y, public, member,   pop) \
     i_override(X,Y, method, init)
-#ifndef arguments_intern
-#define arguments_intern isize(arguments)
-#endif
 declare_mod(arguments, model)
 
 
@@ -133,9 +124,6 @@ declare_mod(arguments, model)
     i_prop(X,Y, required, string, type) \
     i_prop(X,Y, public,   i32,    format_index) \
     i_prop(X,Y, public,   i32,    arg_index)
-#ifndef format_attr_intern
-#define format_attr_intern isize(format_attr)
-#endif
 declare_class(format_attr)
 
 
@@ -154,25 +142,19 @@ declare_class(format_attr)
     i_prop(X,Y, public,     member,                 main_member) \
     i_prop(X,Y, public,     AMember,                function_type) \
     i_prop(X,Y, intern,     format_attr,            format) \
-    i_prop(X,Y, intern,     LLVMMetadataRef,        last_dbg) \
-    i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry) \
-    i_prop(X,Y, intern,     LLVMValueRef,           value) \
-    i_prop(X,Y, intern,     LLVMTypeRef*,           arg_types) \
+    i_prop(X,Y, intern,     LLVMMetadataRef,        last_dbg,  as, ARef) \
+    i_prop(X,Y, intern,     LLVMBasicBlockRef,      entry,     as, ARef) \
+    i_prop(X,Y, intern,     LLVMValueRef,           value,     as, ARef) \
+    i_prop(X,Y, intern,     LLVMTypeRef*,           arg_types, as, ARef) \
     i_prop(X,Y, intern,     num,                    arg_count) \
     i_method(X,Y, public,   none,                   use) \
     i_override(X,Y, method, init) \
     i_override(X,Y, method, finalize)
-#ifndef function_intern
-#define function_intern isize(function)
-#endif
 declare_mod(function, model)
 
 
 #define statements_schema(X,Y,...) \
     i_override(X,Y, method, init)
-#ifndef statements_intern
-#define statements_intern isize(statements)
-#endif
 declare_mod(statements, model)
 
 typedef struct _schematic* schematic;
@@ -183,9 +165,6 @@ typedef struct _schematic* schematic;
     i_prop    (X,Y, public, schematic, schema) \
     i_override(X,Y, method,         finalize) \
     i_override(X,Y, method,         init)
-#ifndef record_intern
-#define record_intern
-#endif
 declare_mod(record, model)
 
 
@@ -193,42 +172,27 @@ declare_mod(record, model)
     i_prop    (X,Y, public, record,     mdl) \
     i_prop    (X,Y, public, string,     namespace) \
     i_prop    (X,Y, public, interface,  access)
-#ifndef schematic_intern
-#define schematic_intern isize(schematic)
-#endif
 declare_class(schematic)
 
 
 #define class_schema(X,Y,...) \
 model_schema(model,Y,__VA_ARGS__) \
 record_schema(record,Y,__VA_ARGS__)
-#ifndef class_intern
-#define class_intern
-#endif
 declare_class(class)
 
 #define structure_schema(X,Y,...) \
 model_schema(model,Y,__VA_ARGS__) \
 record_schema(record,Y,__VA_ARGS__)
-#ifndef structure_intern
-#define structure_intern
-#endif
 declare_class(structure)
 
 #define enumerable_schema(X,Y,...) \
 model_schema(model,Y,__VA_ARGS__) \
 record_schema(record,Y,__VA_ARGS__)
-#ifndef enumerable_intern
-#define enumerable_intern
-#endif
 declare_class(enumerable)
 
 #define uni_schema(X,Y,...) \
 model_schema(model,Y,__VA_ARGS__) \
 record_schema(record,Y,__VA_ARGS__)
-#ifndef uni_intern
-#define uni_intern
-#endif
 declare_class(uni)
 
 
@@ -246,9 +210,6 @@ declare_class(uni)
     i_prop    (X,Y, public,     num,                    column) \
     i_prop    (X,Y, public,     bool,                   loaded) \
     i_prop    (X,Y, intern,     LLVMValueRef,           value)
-#ifndef node_intern
-#define node_intern isize(node)
-#endif
 declare_class(node)
 
 // if ref is set, its a reference to a member with type definition (model, struct, ref)
@@ -278,9 +239,6 @@ declare_class(node)
     i_method  (X,Y, public,     none,    set_value,     object) \
     i_method  (X,Y, public,     member,  resolve,       string) \
     i_override(X,Y, method,     init)
-#ifndef member_intern
-#define member_intern isize(member)
-#endif
 declare_mod(member, node)
 
 
@@ -290,9 +248,6 @@ declare_mod(member, node)
     i_prop    (X,Y, public, symbol, label) \
     i_method  (X,Y, public, none,   select) \
     i_override(X,Y, method, init)
-#ifndef code_intern
-#define code_intern isize(code)
-#endif
 declare_class(code)
 
 #define ether_schema(X,Y,...)\
@@ -308,17 +263,17 @@ declare_class(code)
     i_prop    (X,Y, public,     array,                  lex) \
     i_prop    (X,Y, public,     map,                    base) \
     i_prop    (X,Y, public,     node,                   last_return) \
-    i_prop    (X,Y, intern,     LLVMExecutionEngineRef, jit) \
-    i_prop    (X,Y, intern,     LLVMBasicBlockRef,      current_if_block) \
-    i_prop    (X,Y, intern,     LLVMModuleRef,          module) \
-    i_prop    (X,Y, intern,     LLVMContextRef,         module_ctx) \
-    i_prop    (X,Y, intern,     LLVMBuilderRef,         builder) \
-    i_prop    (X,Y, intern,     LLVMMetadataRef,        file) \
-    i_prop    (X,Y, intern,     LLVMMetadataRef,        compile_unit) \
-    i_prop    (X,Y, intern,     LLVMDIBuilderRef,       dbg_builder) \
-    i_prop    (X,Y, intern,     LLVMTargetRef,          target) \
-    i_prop    (X,Y, intern,     LLVMTargetDataRef,      target_data) \
-    i_prop    (X,Y, intern,     LLVMTargetMachineRef,   target_machine) \
+    i_prop    (X,Y, intern,     LLVMExecutionEngineRef, jit,               as, ARef) \
+    i_prop    (X,Y, intern,     LLVMBasicBlockRef,      current_if_block,  as, ARef) \
+    i_prop    (X,Y, intern,     LLVMModuleRef,          module,            as, ARef) \
+    i_prop    (X,Y, intern,     LLVMContextRef,         module_ctx,        as, ARef) \
+    i_prop    (X,Y, intern,     LLVMBuilderRef,         builder,           as, ARef) \
+    i_prop    (X,Y, intern,     LLVMMetadataRef,        file,              as, ARef) \
+    i_prop    (X,Y, intern,     LLVMMetadataRef,        compile_unit,      as, ARef) \
+    i_prop    (X,Y, intern,     LLVMDIBuilderRef,       dbg_builder,       as, ARef) \
+    i_prop    (X,Y, intern,     LLVMTargetRef,          target,            as, ARef) \
+    i_prop    (X,Y, intern,     LLVMTargetDataRef,      target_data,       as, ARef) \
+    i_prop    (X,Y, intern,     LLVMTargetMachineRef,   target_machine,    as, ARef) \
     i_prop    (X,Y, intern,     cstr,                   target_triple) \
     i_prop    (X,Y, public,     bool,                   left_hand) \
     i_method  (X,Y, public,     node,       default_value, model) \
@@ -370,10 +325,7 @@ declare_class(code)
     i_method  (X,Y, public,     none,       write) \
     i_method  (X,Y, public,     model,      return_type) \
     i_override(X,Y, method,     init) \
-    i_override(X,Y, method,     destructor)
-#ifndef ether_intern
-#define ether_intern isize(ether)
-#endif
+    i_override(X,Y, method,     dealloc)
 declare_mod(ether, model)
 
 // i_vargs   (X,Y, public,     none,       eprint,         symbol) \
