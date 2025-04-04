@@ -209,7 +209,7 @@ declare_class(uni)
     i_prop    (X,Y, public,     num,                    line) \
     i_prop    (X,Y, public,     num,                    column) \
     i_prop    (X,Y, public,     bool,                   loaded) \
-    i_prop    (X,Y, intern,     LLVMValueRef,           value)
+    i_prop    (X,Y, intern,     LLVMValueRef,           value, as, ARef)
 declare_class(node)
 
 // if ref is set, its a reference to a member with type definition (model, struct, ref)
@@ -232,7 +232,7 @@ declare_class(node)
     i_prop    (X,Y, public,     object,                 initializer) \
     i_prop    (X,Y, intern,     i64,                    offset) \
     i_prop    (X,Y, intern,     i64,                    index) \
-    i_prop    (X,Y, intern,     LLVMMetadataRef,        debug) \
+    i_prop    (X,Y, intern,     LLVMMetadataRef,        debug, as, ARef) \
     i_method  (X,Y, public,     none,    release) \
     i_method  (X,Y, public,     bool,    has_value) \
     i_method  (X,Y, public,     none,    set_model,     model) \
@@ -243,7 +243,7 @@ declare_mod(member, node)
 
 
 #define code_schema(X,Y,...) \
-    i_prop    (X,Y, intern, LLVMBasicBlockRef, block) \
+    i_prop    (X,Y, intern, LLVMBasicBlockRef, block, as, ARef) \
     i_prop    (X,Y, public, ether,  mod) \
     i_prop    (X,Y, public, symbol, label) \
     i_method  (X,Y, public, none,   select) \
