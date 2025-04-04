@@ -1,6 +1,7 @@
-A 	https://github.com/ar-visions/A 		main
+import:
+	A https://github.com/ar-visions/A main
 
-lib:
+link:
 	A
 	clang
 	LLVMCore
