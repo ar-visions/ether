@@ -8,7 +8,6 @@ import:
 		-DLLVM_ENABLE_FFI=OFF
 		-DLLVM_ENABLE_RTTI=OFF
 		-DLLVM_BINUTILS_INCDIR=/usr/include
-		-DCLANG_DEFAULT_CXX_STDLIB=libstdc++
 		-DCLANG_DEFAULT_PIE_ON_LINUX=ON
 		-DCLANG_CONFIG_FILE_SYSTEM_DIR=/etc/clang
 		-DLLVM_ENABLE_LIBCXX=OFF
@@ -16,12 +15,26 @@ import:
 		-DLLVM_BUILD_LLVM_DYLIB=OFF
 		-DLLVM_LINK_LLVM_DYLIB=OFF
 		-DLLVM_TARGETS_TO_BUILD='host;X86;AArch64'
+		linux:
+			-DCLANG_DEFAULT_CXX_STDLIB=libstdc++
 		darwin:
-			-DDEFAULT_SYSROOT=$SDK_ROOT
+			-DCMAKE_CXX_FLAGS="-stdlib=libc++"
+			-DCLANG_DEFAULT_CXX_STDLIB=libc++
+			-DDEFAULT_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)
 	
 	A https://github.com/ar-visions/A main
 
-link:
+lib:
+	$(bash ../A/headers.sh)
+    -fPIC
+    -fno-exceptions
+	-Wno-write-strings
+    -Wno-compare-distinct-pointer-types
+    -Wno-deprecated-declarations
+	-Wno-incompatible-pointer-types
+    -Wfatal-errors
+	-Wno-incompatible-library-redeclaration
+    -fvisibility=default
 	A
 	clang
 	LLVMCore
@@ -35,14 +48,12 @@ link:
 	LLVMTransformUtils
 	LLVMAnalysis
 	LLVMProfileData
-	arm64:
-		LLVMAArch64AsmParser
-		LLVMAArch64CodeGen
-		LLVMAArch64Desc
-		LLVMAArch64Info
-		LLVMAArch64Utils
-	x86_64:
-		LLVMX86CodeGen
-		LLVMX86AsmParser
-		LLVMX86Desc
-		LLVMX86Info
+	LLVMAArch64AsmParser
+	LLVMAArch64CodeGen
+	LLVMAArch64Desc
+	LLVMAArch64Info
+	LLVMAArch64Utils
+	LLVMX86CodeGen
+	LLVMX86AsmParser
+	LLVMX86Desc
+	LLVMX86Info
