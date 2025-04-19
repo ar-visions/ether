@@ -1,9 +1,7 @@
 #ifndef _ETHER_
 #define _ETHER_
 
-/// start-trim
 #include <A>
-/// end-trim
 
 /// @brief the ether should be considered mysterious, and magical.
 /// to make effective debuggable LL code, one has to employ multiple 
@@ -175,25 +173,17 @@ declare_mod(record, model)
 declare_class(schematic)
 
 
-#define class_schema(X,Y,...) \
-model_schema(model,Y,__VA_ARGS__) \
-record_schema(record,Y,__VA_ARGS__)
-declare_class(class)
+#define class_schema(X,Y,...)
+declare_mod(class, record, model)
 
-#define structure_schema(X,Y,...) \
-model_schema(model,Y,__VA_ARGS__) \
-record_schema(record,Y,__VA_ARGS__)
-declare_class(structure)
+#define structure_schema(X,Y,...)
+declare_mod(structure, record, model)
 
-#define enumerable_schema(X,Y,...) \
-model_schema(model,Y,__VA_ARGS__) \
-record_schema(record,Y,__VA_ARGS__)
-declare_class(enumerable)
+#define enumerable_schema(X,Y,...)
+declare_mod(enumerable, record, model)
 
-#define uni_schema(X,Y,...) \
-model_schema(model,Y,__VA_ARGS__) \
-record_schema(record,Y,__VA_ARGS__)
-declare_class(uni)
+#define uni_schema(X,Y,...)
+declare_mod(uni, record, model)
 
 
 /// the base helps us require the two args we need for nodes
@@ -251,11 +241,9 @@ declare_mod(member, node)
 declare_class(code)
 
 #define ether_schema(X,Y,...)\
-    i_prop    (X,Y, required,   path,                   source) \
-    i_prop    (X,Y, required,   string,                 lang) \
-    i_prop    (X,Y, required,   path,                   install) \
+    i_prop    (X,Y, required,   path,           install) \
+    i_prop    (X,Y, public,     path,                   source) \
     i_prop    (X,Y, public,     bool,                   delegate) \
-    i_prop    (X,Y, public,     bool,                   no_build) \
     i_prop    (X,Y, public,     bool,                   with_debug) \
     i_prop    (X,Y, intern,     path,                   current_include) \
     i_prop    (X,Y, intern,     function,               current_fn) \
