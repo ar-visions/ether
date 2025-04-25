@@ -21,39 +21,26 @@ import:
 			-DCMAKE_CXX_FLAGS="-stdlib=libc++"
 			-DCLANG_DEFAULT_CXX_STDLIB=libc++
 			-DDEFAULT_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)
-	
-	A https://github.com/ar-visions/A main
+		-lclang
+		-lLLVMCore
+		-lLLVMBitReader
+		-lLLVMBitWriter
+		-lLLVMIRReader
+		-lLLVMSupport
+		-lLLVMExecutionEngine
+		-lLLVMTarget
+		-lLLVMTargetParser
+		-lLLVMTransformUtils
+		-lLLVMAnalysis
+		-lLLVMProfileData
+		-lLLVMAArch64AsmParser
+		-lLLVMAArch64CodeGen
+		-lLLVMAArch64Desc
+		-lLLVMAArch64Info
+		-lLLVMAArch64Utils
+		-lLLVMX86CodeGen
+		-lLLVMX86AsmParser
+		-lLLVMX86Desc
+		-lLLVMX86Info
 
-lib:
-	$(bash ../A/headers.sh)
-    -fPIC
-    -fno-exceptions
-	-Wno-write-strings
-    -Wno-compare-distinct-pointer-types
-    -Wno-deprecated-declarations
-	-Wno-incompatible-pointer-types
-    -Wfatal-errors
-	-Wno-incompatible-library-redeclaration
-    -fvisibility=default
-	A
-	clang
-	LLVMCore
-	LLVMBitReader
-	LLVMBitWriter
-	LLVMIRReader
-	LLVMSupport
-	LLVMExecutionEngine
-	LLVMTarget
-	LLVMTargetParser
-	LLVMTransformUtils
-	LLVMAnalysis
-	LLVMProfileData
-	LLVMAArch64AsmParser
-	LLVMAArch64CodeGen
-	LLVMAArch64Desc
-	LLVMAArch64Info
-	LLVMAArch64Utils
-	LLVMX86CodeGen
-	LLVMX86AsmParser
-	LLVMX86Desc
-	LLVMX86Info
+	A https://github.com/ar-visions/A main

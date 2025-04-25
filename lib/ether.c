@@ -2195,20 +2195,24 @@ void ether_llflag(ether e, symbol flag, i32 ival) {
 }
 
 
-void ether_write(ether e) {
+bool ether_write(ether e, ARef ref_ll, ARef ref_bc) {
+    path* ll = ref_ll;
+    path* bc = ref_bc;
     cstr err = NULL;
 
-    path ll = form(path, "%o.ll", e->name);
-    path bc = form(path, "%o.bc", e->name);
+    *ll = form(path, "%o.ll", e->name);
+    *bc = form(path, "%o.bc", e->name);
 
-    if (LLVMPrintModuleToFile(e->module, cstring(ll), &err))
+    if (LLVMPrintModuleToFile(e->module, cstring(*ll), &err))
         fault("LLVMPrintModuleToFile failed");
 
     if (LLVMVerifyModule(e->module, LLVMPrintMessageAction, &err))
         fault("error verifying module");
     
-    if (LLVMWriteBitcodeToFile(e->module, cstring(bc)) != 0)
+    if (LLVMWriteBitcodeToFile(e->module, cstring(*bc)) != 0)
         fault("LLVMWriteBitcodeToFile failed");
+
+    return true;
 }
 
 
