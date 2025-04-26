@@ -15,12 +15,6 @@ import:
 		-DLLVM_BUILD_LLVM_DYLIB=OFF
 		-DLLVM_LINK_LLVM_DYLIB=OFF
 		-DLLVM_TARGETS_TO_BUILD='host;X86;AArch64'
-		linux:
-			-DCLANG_DEFAULT_CXX_STDLIB=libstdc++
-		darwin:
-			-DCMAKE_CXX_FLAGS="-stdlib=libc++"
-			-DCLANG_DEFAULT_CXX_STDLIB=libc++
-			-DDEFAULT_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)
 		-lclang
 		-lLLVMCore
 		-lLLVMBitReader
@@ -42,5 +36,11 @@ import:
 		-lLLVMX86AsmParser
 		-lLLVMX86Desc
 		-lLLVMX86Info
+		linux:
+			-DCLANG_DEFAULT_CXX_STDLIB=libstdc++
+		darwin:
+			-DCMAKE_CXX_FLAGS="-stdlib=libc++"
+			-DCLANG_DEFAULT_CXX_STDLIB=libc++
+			-DDEFAULT_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)
 
 	A https://github.com/ar-visions/A main
