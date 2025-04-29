@@ -24,27 +24,6 @@ typedef LLVMMetadataRef LLVMScope;
 
 #define value(m,vr) node(mod, e, value, vr, mdl, m)
 
-// Convert a hex color string (#RRGGBB) to ANSI escape code
-void generate_ansi_from_hex(const char *hex_color) {
-    if (hex_color[0] != '#' || strlen(hex_color) != 7) {
-        printf("Invalid color format. Use #RRGGBB.\n");
-        return;
-    }
-
-    // Extract RGB values from the hex string
-    int r = (int)strtol(&hex_color[1], NULL, 16) >> 16;        // Red
-    int g = ((int)strtol(&hex_color[1], NULL, 16) & 0xFF00) >> 8; // Green
-    int b = (int)strtol(&hex_color[1], NULL, 16) & 0xFF;         // Blue
-
-    // Print the ANSI escape code
-    printf("\033[38;2;%d;%d;%dm", r, g, b);
-}
-
-// Reset ANSI colors
-void reset_ansi_color() {
-    printf("\033[0m");
-}
-
 member ether_lookup(ether e, object name, AType type);
 
 member ether_push_model(ether e, model mdl) {
