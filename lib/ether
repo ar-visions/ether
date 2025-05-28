@@ -19,17 +19,17 @@ typedef struct _record*      record;
 typedef struct _node*        node;
 typedef struct _function*    function;
 
-#define comparison_schema(X,Y,...) \
-    enum_value_v(X,Y, equals, 32) \
-    enum_value  (X,Y, not_equals) \
-    enum_value  (X,Y, u_greater_than) \
-    enum_value  (X,Y, u_greater_than_e) \
-    enum_value  (X,Y, u_less_than) \
-    enum_value  (X,Y, u_less_than_e) \
-    enum_value  (X,Y, s_greater_than) \
-    enum_value  (X,Y, s_greater_than_e) \
-    enum_value  (X,Y, s_less_than) \
-    enum_value  (X,Y, s_less_than_e)
+#define comparison_schema(E,T,Y,...) \
+    enum_value  (E,T,Y, equals,           32) \
+    enum_value  (E,T,Y, not_equals,       1) \
+    enum_value  (E,T,Y, u_greater_than,   2) \
+    enum_value  (E,T,Y, u_greater_than_e, 3) \
+    enum_value  (E,T,Y, u_less_than,      4) \
+    enum_value  (E,T,Y, u_less_than_e,    5) \
+    enum_value  (E,T,Y, s_greater_than,   6) \
+    enum_value  (E,T,Y, s_greater_than_e, 7) \
+    enum_value  (E,T,Y, s_less_than,      8) \
+    enum_value  (E,T,Y, s_less_than_e,    9)
 declare_enum(comparison)
 
 #define token_schema(X,Y,...) \
@@ -54,17 +54,17 @@ declare_enum(comparison)
 declare_class(token)
 
 
-#define interface_schema(X,Y,...) \
-    enum_value(X,Y, undefined) \
-    enum_value(X,Y, intern) \
-    enum_value(X,Y, public)
+#define interface_schema(E,T,Y,...) \
+    enum_value(E,T,Y, undefined,  0) \
+    enum_value(E,T,Y, intern,     1) \
+    enum_value(E,T,Y, public,     2)
 declare_enum(interface)
 
 
-#define reference_schema(X,Y,...) \
-    enum_value(X,Y, value) \
-    enum_value(X,Y, pointer) \
-    enum_value(X,Y, constant)
+#define reference_schema(E,T,Y,...) \
+    enum_value(E,T,Y, value,      0) \
+    enum_value(E,T,Y, pointer,    1) \
+    enum_value(E,T,Y, constant,   2)
 declare_enum(reference)
 
 
@@ -115,7 +115,7 @@ declare_class(model)
     i_method  (X,Y, public, none,     push, member) \
     i_method  (X,Y, public, member,   pop) \
     i_override(X,Y, method, init)
-declare_mod(arguments, model)
+declare_class_2(arguments, model)
 
 
 #define format_attr_schema(X,Y,...) \
@@ -148,12 +148,12 @@ declare_class(format_attr)
     i_method(X,Y, public,   none,                   use) \
     i_override(X,Y, method, init) \
     i_override(X,Y, method, finalize)
-declare_mod(function, model)
+declare_class_2(function, model)
 
 
 #define statements_schema(X,Y,...) \
     i_override(X,Y, method, init)
-declare_mod(statements, model)
+declare_class_2(statements, model)
 
 typedef struct _schematic* schematic;
 
@@ -163,7 +163,7 @@ typedef struct _schematic* schematic;
     i_prop    (X,Y, public, schematic, schema) \
     i_override(X,Y, method,         finalize) \
     i_override(X,Y, method,         init)
-declare_mod(record, model)
+declare_class_2(record, model)
 
 
 #define schematic_schema(X,Y,...) \
@@ -174,16 +174,16 @@ declare_class(schematic)
 
 
 #define class_schema(X,Y,...)
-declare_mod(class, record, model)
+declare_class_3(class, record, model)
 
 #define structure_schema(X,Y,...)
-declare_mod(structure, record, model)
+declare_class_3(structure, record, model)
 
 #define enumerable_schema(X,Y,...)
-declare_mod(enumerable, record, model)
+declare_class_3(enumerable, record, model)
 
 #define uni_schema(X,Y,...)
-declare_mod(uni, record, model)
+declare_class_3(uni, record, model)
 
 
 /// the base helps us require the two args we need for nodes
@@ -229,7 +229,7 @@ declare_class(node)
     i_method  (X,Y, public,     none,    set_value,     object) \
     i_method  (X,Y, public,     member,  resolve,       string) \
     i_override(X,Y, method,     init)
-declare_mod(member, node)
+declare_class_2(member, node)
 
 
 #define code_schema(X,Y,...) \
@@ -314,7 +314,7 @@ declare_class(code)
     i_method  (X,Y, public,     model,      return_type) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     dealloc)
-declare_mod(ether, model)
+declare_class_2(ether, model)
 
 // i_vargs   (X,Y, public,     none,       eprint,         symbol) \
 
