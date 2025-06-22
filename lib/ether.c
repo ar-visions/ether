@@ -1633,7 +1633,7 @@ model ether_base_model(ether e, symbol name, AType native) {
 }
 
 model ether_define_generic(ether e) {
-    A     obj = A_alloc(typeid(object), 1, true);
+    A     obj = A_alloc(typeid(object), 1);
     string  n = string("generic");
     model mdl = model(mod, e, name, n, src, obj);
     set(e->base, n, mdl);
