@@ -50,12 +50,10 @@ map ether_top_member_map(ether e) {
 }
 
 void ether_push_member(ether e, member mem) {
-    if (mem->registered)
+    if (!mem || mem->registered)
         return;
     mem->registered = true;
-    if (strcmp(mem->name->chars, "stdio") == 0) {
-        verify(e->top->members == e->members, "stdio not registering");
-    }
+
     //class is_cl = instanceof(mem->mdl, class);
     //if (is_cl) {
         //member ptr_class = member(mod, e, mdl, pointer(mem->mdl), name, mem->name);
@@ -63,11 +61,10 @@ void ether_push_member(ether e, member mem) {
     //}
     map members = ether_top_member_map(e);
     string  key = string(mem->name->chars);
-    array  list = get(members, key);
-    if (!list) {
-        list = array(32);
-        set(members, key, list);
-    }
+
+    // todo: remove ALL uses of arrays on the members; i simply do not see the point of this; we do not duplicate members by name, ever in any model
+    // information: ah.. this was for method overloading.. sheesh.  it would be better to store them inside of one member and select inside that one member.  why is that such a problem?
+
     set(members, string(mem->name->chars), mem);
     set_model(mem, mem->mdl);
 
@@ -144,7 +141,7 @@ bool is_ref      (model f) {
     return false;
 }
 
-void init() {
+void initialize() {
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
     LLVMInitializeNativeAsmParser();
@@ -155,7 +152,7 @@ void init() {
         LLVM_VERSION_PATCH);
 }
 
-module_init(init);
+module_init(initialize);
 
 void print_ctx(ether e, string msg) {
     string res = string(alloc, 32);
@@ -175,7 +172,7 @@ void model_finalize(model mdl, member mem) {
 }
 
 string model_cast_string(model mdl) {
-    if (mdl->name) return mdl->name;
+    if (mdl->name) return string(mdl->name->chars);
     int depth = 0;
     while (mdl->src) {
         if (mdl->ref != reference_value)
@@ -227,7 +224,7 @@ void model_init(model mdl) {
 
     AType type = isa(mdl_src);
 
-    if (type->traits & A_TRAIT_PRIMITIVE || type == typeid(object)) {
+    if (type->traits & A_TRAIT_PRIMITIVE) {
         if (type == typeid(f32))
             mdl->type = LLVMFloatType();
         else if (type == typeid(f64))
@@ -270,9 +267,11 @@ void model_init(model mdl) {
             mdl->type  = LLVMPointerType(
                 src->type == LLVMVoidType() ? LLVMInt8Type() : src->type, 0);
             model src_name = mdl->name ? mdl : (model)mdl->src;
-            if (src_name->name)
+            if (src_name->name) {
+                int ln = len(name);
                 mdl->debug = LLVMDIBuilderCreatePointerType(e->dbg_builder, src->debug,
-                    ptr_sz * 8, 0, 0, name->chars, len(name));
+                    ptr_sz * 8, 0, 0, name->chars, ln);
+            }
         } else if (instanceof(mdl_src, record)) {
             record rec = mdl_src;
             mdl->type  = rec->type;
@@ -521,7 +520,7 @@ void function_finalize(function fn, member mem) {
         index++;
     }
 
-    each(fn->args, member, arg) {
+    each(fn->args->args, member, arg) {
         /// create debug for parameter here
         LLVMMetadataRef param_meta = LLVMDIBuilderCreateParameterVariable(
             e->dbg_builder,          // DIBuilder reference
@@ -672,14 +671,14 @@ void function_use(function fn) {
             "target [incoming] must be record type (struct / class) -- it is then made pointer-to record");
         
         /// we set is_arg to prevent registration of global
-        fn->target = member(mod, e, mdl, pointer(fn->record), name, string("this"), is_arg, true);
+        fn->target = hold(member(mod, e, mdl, pointer(fn->record), name, string("this"), is_arg, true));
         arg_types[index++] = fn->target->mdl->type;
     }
 
     //print("function %o", fn->name);
     verify(isa(fn->args) == typeid(arguments), "arg mismatch");
     
-    each(fn->args, member, arg) {
+    each(fn->args->args, member, arg) {
         verify (arg->mdl->type, "no LLVM type found for arg %o", arg->name);
         arg_types[index++]   = arg->mdl->type;
         //print("arg type [%i] = %s", index - 1, LLVMPrintTypeToString(arg->mdl->type));
@@ -699,7 +698,7 @@ void function_use(function fn) {
         fn->target->is_arg = true;
         set(fn->members, string("this"), fn->target); /// here we have the LLVM Value Ref of the first arg, or, our instance pointer
     }
-    each(fn->args, member, arg) {
+    each(fn->args->args, member, arg) {
         arg->value = LLVMGetParam(fn->value, index++);
         arg->is_arg = true;
         set(fn->members, string(arg->name->chars), arg);
@@ -753,10 +752,20 @@ void record_finalize(record rec, member mem) {
     // this must now work with 'schematic' model
     // delegation namespace
     while (r) {
-        total += len(r->members);
+        int this_total = 0;
+        pairs(r->members, i) {
+            total ++;
+            this_total++;
+        }
+        int ln_members = len(r->members);
+        if (this_total != ln_members) {
+            print("len is different on map %o", src((object)r));
+        }
+        total += ln_members;
         push(a, r);
         r = r->parent;
     }
+    rec->total_members = total;
     if (len(a) > 1) {
         array rev = array((int)len(a));
         for (int i = len(a) - 1; i >= 0; i--)
@@ -773,13 +782,15 @@ void record_finalize(record rec, member mem) {
 
     each (a, record, r) {
         pairs(r->members, i) {
+            string k =  i->key;
             member mem = i->value;
-            verify( mem->name,  "no name on member");
+            A info = isa(mem);
+            verify( mem->name && mem->name->chars,  "no name on member: %p", mem);
             if (instanceof(mem->mdl, function))
                 continue;
             /// in poly classes, we will encounter the same member twice
+            finalize(mem->mdl, mem);
             if (!mem->debug) {
-                finalize(mem->mdl, mem);
                 mem->debug = LLVMDIBuilderCreateMemberType(
                     e->dbg_builder,              // LLVMDIBuilderRef
                     e->top->scope,         // Scope of the member (can be the struct, class or base module)
@@ -794,7 +805,6 @@ void record_finalize(record rec, member mem) {
                     mem->mdl->debug        // The LLVMMetadataRef for the member's type (created earlier)
                 );
             }
-            finalize(mem->mdl, mem);
             member_types[index]   = mem->mdl->type;
             int abi_size = LLVMABISizeOfType(target_data, mem->mdl->type);
             member_debug[index++] = mem->debug;
@@ -963,11 +973,13 @@ void member_init(member mem) {
 
 void member_set_model(member mem, model mdl) {
     if (!mdl) return;
+    
     AType mdl_type = isa(mdl);
     if (mem->mdl != mdl) {
         verify(!mem->mdl, "model already set on member");
         mem->mdl = hold(mdl);
     }
+
     function is_fn   = instanceof(mdl, function);
     if      (is_fn) return;
 
@@ -1021,14 +1033,17 @@ void member_set_model(member mem, model mdl) {
             LLVMDIBuilderCreateExpression(e->dbg_builder, NULL, 0), // Empty expression
             LLVMGetCurrentDebugLocation2(e->builder),       // Current debug location
             firstInstr);
-    } else if (!rec && !is_user && !ctx_fn && !mem->is_type && !mem->is_arg && !e->current_include && is_init && !mem->is_decl) {
+    } else if (!rec && !is_user && !ctx_fn && !mem->is_type && 
+               !mem->is_arg && !e->current_include && is_init && !mem->is_decl) {
         /// add module-global if this has no value, set linkage
         symbol name = mem->name->chars;
         LLVMTypeRef type = mem->mdl->type;
         // we assign constants ourselves, and value is not set until we register the
         //verify(!mem->is_const || mem->value, "const value mismatch");
         bool is_global_space = false;
-        if (!mem->value) {
+        /// they would be abstract above definition of ether model
+        //      less we want to start subclassing functionality of the others
+        if (isa(mem->mdl)->parent_type != typeid(model) && !mem->value) {
             mem->value = LLVMAddGlobal(e->module, type, name); // its created here (a-map)
             //LLVMSetGlobalConstant(mem->value, mem->is_const);
             LLVMSetInitializer(mem->value, LLVMConstNull(type));
@@ -1061,7 +1076,12 @@ void member_set_model(member mem, model mdl) {
         literal, l, mdl, emodel(stringify(u##b)), \
         value, LLVMConstInt(emodel(stringify(u##b))->type, *(u##b*)l, 0))
 
-#define real_value(b,l) \
+#define f32_value(b,l) \
+    node(mod, e, \
+        literal, l, mdl, emodel(stringify(f##b)), \
+        value, LLVMConstReal(emodel(stringify(f##b))->type, *(f##b*)l))
+
+#define f64_value(b,l) \
     node(mod, e, \
         literal, l, mdl, emodel(stringify(f##b)), \
         value, LLVMConstReal(emodel(stringify(f##b))->type, *(f##b*)l))
@@ -1077,8 +1097,8 @@ node operand_primitive(ether e, object op) {
     else if (instanceof(op,    i32)) return  int_value(32, op);
     else if (instanceof(op,    i64)) return  int_value(64, op);
     else if (instanceof(op,     sz)) return  int_value(64, op); /// instanceof is a bit broken here and we could fix the generic; its not working with aliases
-    else if (instanceof(op,    f32)) return real_value(32, op);
-    else if (instanceof(op,    f64)) return real_value(64, op);
+    else if (instanceof(op,    f32)) return  f32_value(32, op);
+    else if (instanceof(op,    f64)) return  f64_value(64, op);
     else if (instanceof(op, string)) {
         LLVMTypeRef  gs      = LLVMBuildGlobalStringPtr(e->builder, ((string)op)->chars, "chars");
         LLVMValueRef cast_i8 = LLVMBuildBitCast(e->builder, gs, LLVMPointerType(LLVMInt8Type(), 0), "cast_symbol");
@@ -1373,14 +1393,15 @@ node ether_builder(ether e, subprocedure cond_builder) {
 }
 
 node ether_if_else(ether e, array conds, array exprs, subprocedure cond_builder, subprocedure expr_builder) {
-    verify(len(conds) == len(exprs) - 1 || 
-           len(conds) == len(exprs), "mismatch between conditions and expressions");
+    int ln_conds = len(conds);
+    verify(ln_conds == len(exprs) - 1 || 
+           ln_conds == len(exprs), "mismatch between conditions and expressions");
     
     LLVMBasicBlockRef block = LLVMGetInsertBlock  (e->builder);
     LLVMBasicBlockRef merge = LLVMAppendBasicBlock(block, "ifcont");  // Merge block for the end of if-else chain
 
     // Iterate over the conditions and expressions
-    for (int i = 0; i < len(conds); i++) {
+    for (int i = 0; i < ln_conds; i++) {
         // Create the blocks for "then" and "else"
         LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(block, "then");
         LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(block, "else");
@@ -1935,6 +1956,7 @@ model cx_to_model(ether e, CXType cxType, symbol name, bool arg_rules) {
                 else {
                     fault("unknown record kind");
                 }
+                A info = head(def);
                 clang_visitChildren(rcursor, visit_member, def);
                 ether_push_model(e, def);
                 return def;
@@ -1981,7 +2003,7 @@ enum CXChildVisitResult visit_member(CXCursor cursor, CXCursor parent, CXClientD
     
     return CXChildVisit_Recurse;
 }
-
+ 
 enum CXChildVisitResult visit_enum_constant(CXCursor cursor, CXCursor parent, CXClientData client_data) {
     if (clang_getCursorKind(cursor) == CXCursor_EnumConstantDecl) {
         model         def = (model)client_data;
@@ -2008,13 +2030,18 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
     model     def = null;
     enum CXCursorKind k = clang_getCursorKind(cursor);
     model current = emodel(name->chars);
-    if   (current) return CXChildVisit_Continue;
+    if   (current) {
+        // this process does not follow standard pre processor control flow, and thus its impossible safe-guard at this level
+        // definitions will need to be validated below this context
+        //fault("already defined: %o", name);
+        return CXChildVisit_Continue;
+    }
 
     verify (!current, "duplicate definition when importing: %o", name);
     
     switch (k) {
         case CXCursor_EnumDecl: {
-            def = enumerable( // or create a specific enum type
+            def = enumeration( // or create a specific enum type
                 mod,          e,
                 from_include, e->current_include,
                 size,         4,
@@ -2051,7 +2078,7 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
             push_model(e, def);
             /// read format attributes from functions, through llvm contribution
             /// PR #3.5k in queue, but its useful for knowing context in formatter functions
-            CXCursor format = clang_Cursor_getFormatAttr(cursor);
+            /*CXCursor format = clang_Cursor_getFormatAttr(cursor);
             if (!clang_Cursor_isNull(format)) {
                 CXString f_type  = clang_FormatAttr_getType     (format);
                 symbol   f_stype = clang_getCString             (f_type);
@@ -2060,7 +2087,7 @@ enum CXChildVisitResult visit(CXCursor cursor, CXCursor parent, CXClientData cli
                 ((function)def)->format = format_attr(
                     type, string(f_stype), format_index, f_index, arg_index, f_first);
                 clang_disposeString(f_type);
-            }
+            }*/
             break;
         }
         case CXCursor_StructDecl: {
@@ -2115,8 +2142,14 @@ function model_initializer(model mdl) {
     return fn_init;
 }
 
+void enumeration_init(enumeration mdl) {
+    ether e = mdl->mod;
+    mdl->src  = mdl->src ? mdl->src : emodel("i32");
+    mdl->size = mdl->src->size;
+}
+
 /// return a map of defs found by their name (we can isolate the namespace this way by having separate maps)
-void ether_include(ether e, string include) {
+path ether_include_path(ether e, string include) {
     string   include_path  = form(string, "%o/include", e->install);
     path     full_path = null;
     symbol   ipaths[]  = {
@@ -2139,6 +2172,14 @@ void ether_include(ether e, string include) {
             }
         }
     }
+    return full_path;
+}
+
+/// return a map of defs found by their name (we can isolate the namespace this way by having separate maps)
+path ether_include(ether e, object include) {
+    path full_path  = instanceof(include, path) ?
+        (path)include : include_path(e, include);
+
     verify (full_path, "include path not found for %o", include);
     CXIndex index = clang_createIndex(0, 0);
     const char* args[] = {"-x", "c-header"}; /// allow 'A' to parse as a 
@@ -2153,6 +2194,7 @@ void ether_include(ether e, string include) {
     clang_disposeTranslationUnit(unit);
     clang_disposeIndex(index);
     e->current_include = null;
+    return full_path;
 }
 
 
@@ -2247,7 +2289,7 @@ void ether_llvm_init(ether e) {
 void ether_init(ether e) {
     e->with_debug = true;
     ether_llvm_init(e);
-    e->lex = array(32);
+    e->lex = array(alloc, 32, assorted, true);
     struct ether_f* table = isa(e);
 
     push(e, e);
@@ -2615,7 +2657,7 @@ node ether_fn_call(ether e, member fn_mem, array args) {
                 continue;
             }
 
-            member    f_arg = get(fn->args, index);
+            member    f_arg = get(fn->args->args, index);
             AType     vtype = isa(value);
             node      op    = operand(e, value, null);
             node      conv  = convert(e, op, f_arg ? f_arg->mdl : op->mdl);
@@ -2683,7 +2725,7 @@ node ether_op(ether e, OPType optype, string op_name, object L, object R) {
                 function fn = Lt->mdl;
                 verify(len(fn->args) == 1, "expected 1 argument for operator method");
                 /// convert argument and call method
-                model  arg_expects = get(fn->args, 0);
+                model  arg_expects = get(fn->args->args, 0);
                 node  conv = convert(e, Ln, arg_expects);
                 array args = array_of(conv, null);
                 verify(mL, "mL == null");
@@ -2720,6 +2762,7 @@ node ether_op(ether e, OPType optype, string op_name, object L, object R) {
             literal = RL->literal;
         } else
         /// store from operation we call, membered in OPType enumeration
+        /// todo: build all op tables in A-type (we are lacking these definitions)
             RES = op_table[optype - OPType__assign_add].f_op(B, LL->value, RL->value, N);
         LLVMBuildStore(B, RES, mL->value);
     }
@@ -2885,6 +2928,12 @@ bool model_has_scope(model mdl) {
     return !!mdl->scope;
 }
 
+token token_with_cstr(token a, cstr s) {
+    a->chars = s;
+    a->len   = strlen(s);
+    return a;
+}
+
 void token_init(token a) {
     cstr prev = a->chars;
     sz length = a->len ? a->len : strlen(prev);
@@ -2921,10 +2970,9 @@ define_class     (function,    model)
 define_class     (record,      model)
 define_class     (ether,       model)
 define_class     (uni,         record)
-define_class     (enumerable,  record)
+define_class     (enumeration, record)
 define_class     (structure,   record)
 define_class     (class,       record)
-define_class     (schematic,   A)
 define_class     (code,        A)
 define_class     (token,       A)
 define_class     (node,        A)

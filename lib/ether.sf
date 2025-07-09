@@ -1,0 +1,243 @@
+class token
+    required chars   : str
+    public len       : sz
+    public source    : path
+    public line      : num
+    public column    : num
+    public indent    : num
+    public literal   : A
+    public namespace : model
+
+    public get_type -> AType
+    public len -> sz
+    public location -> str
+    public eq -> bool
+    public cmp -> num
+
+class model
+    required mod         : ether
+    public name          : token
+    intern aliases       : array
+    required src         : model
+    public ref           : reference
+    public shape         : object
+    public is_map        : bool
+    public is_array      : bool
+    public element_count : i64
+    public top_stride    : i64
+    public strides       : array
+    public is_user       : bool
+    public size          : sz
+    public alignment     : sz
+    public rtype         : model
+    public members       : map
+    public from_include  : path
+    public body          : array
+    intern scope         : LLVMScope
+    intern type          : LLVMTypeRef
+    intern debug         : LLVMMetadataRef
+    intern ptr           : model
+    public finalized     : bool
+    intern init_top      : model
+    public fn_init       : function
+
+    public initializer -> function
+    public pointer -> model
+    public has_scope -> bool
+    public alias[ reference: object ] -> model
+    public finalize -> none
+    public convertible -> member
+    public castable -> member
+    public constructable -> member
+    override string
+    override init
+
+class arguments : model
+    public args     : array
+    public is_ext   : bool
+    public ext_type : model
+
+    public len -> sz
+    public get -> object
+    public push -> none
+    public pop -> member
+    override init
+
+class format_attr
+    required type       : str
+    public format_index : i32
+    public arg_index    : i32
+
+class function : model
+    public is_cast       : bool
+    public is_global_ctr : bool
+    public is_init       : bool
+    public va_args       : bool
+    public args          : arguments
+    public payload       : record
+    public export        : bool
+    public record        : model
+    public imdl          : model
+    public single_expr   : bool
+    public target        : member
+    public main_member   : member
+    public function_type : AMember
+    intern format        : format_attr
+    intern last_dbg      : LLVMMetadataRef
+    intern entry         : LLVMBasicBlockRef
+    intern value         : LLVMValueRef
+    intern arg_types     : LLVMTypeRef*
+    intern arg_count     : num
+
+    public use -> none
+    override init
+    override finalize
+
+class statements : model
+    override init
+
+class record : model
+    public parent        : record
+    public schema        : schematic
+    public total_members : i32
+
+    override finalize
+    override init
+
+class schematic
+    public mdl       : record
+    public namespace : str
+    public access    : interface
+
+class class : record, model
+
+class structure : record, model
+
+class enumeration : record, model
+    override init
+
+class uni : record, model
+
+class node
+    public name    : token
+    public mod     : ether
+    required mdl   : model
+    public literal : object
+    public line    : num
+    public column  : num
+    public loaded  : bool
+    intern value   : LLVMValueRef
+
+class member : node
+    public access        : interface
+    public aliases       : array
+    public context       : model, weak
+    public target_member : member
+    public target_record : record
+    public registered    : bool
+    public is_module     : ether
+    public is_static     : bool
+    public is_require    : bool
+    public is_inlay      : bool
+    public is_const      : bool
+    public is_assigned   : bool
+    public is_type       : bool
+    public is_func       : bool
+    public is_arg        : bool
+    public is_decl       : bool
+    public from_include  : path
+    public initializer   : object
+    intern offset        : i64
+    intern index         : i64
+    intern debug         : LLVMMetadataRef
+
+    public release -> none
+    public has_value -> bool
+    public set_model -> none
+    public set_value -> none
+    public resolve -> member
+    override init
+
+class code
+    intern block : LLVMBasicBlockRef
+    public mod   : ether
+    public label : symbol
+
+    public select -> none
+    override init
+
+class ether : model
+    required install        : path
+    public source           : path
+    public delegate         : bool
+    public with_debug       : bool
+    intern current_include  : path
+    intern current_fn       : function
+    public top              : model
+    public lex              : array
+    public base             : map
+    public last_return      : node
+    intern jit              : LLVMExecutionEngineRef
+    intern current_if_block : LLVMBasicBlockRef
+    intern module           : LLVMModuleRef
+    intern module_ctx       : LLVMContextRef
+    intern builder          : LLVMBuilderRef
+    intern file             : LLVMMetadataRef
+    intern compile_unit     : LLVMMetadataRef
+    intern dbg_builder      : LLVMDIBuilderRef
+    intern target           : LLVMTargetRef
+    intern target_data      : LLVMTargetDataRef
+    intern target_machine   : LLVMTargetMachineRef
+    intern target_triple    : str
+    public left_hand        : bool
+
+    public default_value -> node
+    public builder -> node
+    public build_initializer -> none
+    public eelement[ object: node ] -> node
+    public ecmp[ comparison: node, code: node ] -> none
+    public ebranch -> none
+    public compatible[ string: record, array: AMember ] -> member
+    public push_member -> none
+    public push_model -> member
+    public operand[ model: object ] -> node
+    public op[ string: OPType, object: object ] -> node
+    public load -> node
+    public offset[ object: node ] -> node
+    public if_else[ array: array, subprocedure: subprocedure ] -> node
+    public ternary[ node: node ] -> node
+    public convert[ model: node ] -> node
+    public addr_of[ model: node ] -> node
+    public bitwise_not -> node
+    public not -> node
+    public einc[ num: node ] -> none
+    public eprint_node -> none
+    public evar[ string: model ] -> member
+    public or[ object: object ] -> node
+    public xor[ object: object ] -> node
+    public and[ object: object ] -> node
+    public add[ object: object ] -> node
+    public sub[ object: object ] -> node
+    public mul[ object: object ] -> node
+    public div[ object: object ] -> node
+    public create[ object: model ] -> node
+    public zero -> node
+    public assign[ object: node ] -> node
+    public eq[ node: node ] -> node
+    public cmp[ node: node ] -> node
+    public not_eq[ node: node ] -> node
+    public fn_call[ array: member ] -> node
+    public fn_return -> node
+    public is[ object: node ] -> node
+    public inherits[ object: node ] -> node
+    public lookup[ AType: object ] -> member
+    public context_model -> model
+    public include -> path
+    public llflag[ i32: symbol ] -> none
+    public push -> model
+    public pop -> model
+    public top -> model
+    public write[ ARef: ARef ] -> bool
+    public return_type -> model
+    override init
+    override dealloc
